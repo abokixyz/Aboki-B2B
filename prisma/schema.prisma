@@ -1,0 +1,72 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id            String   @id @default(uuid())
+  name          String
+  email         String   @unique
+  walletAddress String?
+  apiKey        String   @unique @default(uuid())
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  transactions  Transaction[]
+  contracts     Contract[]
+  
+  @@map("companies")
+}
+
+model Transaction {
+  id              String      @id @default(uuid())
+  companyId       String
+  txHash          String?     @unique
+  blockchainType  String      // ethereum, polygon, etc.
+  contractAddress String
+  functionName    String
+  parameters      Json
+  status          TxStatus    @default(PENDING)
+  gasUsed         String?     // Using String to handle BigInt
+  gasPrice        String?     // Using String to handle BigInt
+  errorMessage    String?
+  createdAt       DateTime    @default(now())
+  completedAt     DateTime?
+  
+  company         Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  @@map("transactions")
+}
+
+model Contract {
+  id              String   @id @default(uuid())
+  companyId       String
+  name            String
+  address         String
+  abi             Json
+  blockchainType  String
+  description     String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  @@unique([companyId, address])
+  @@map("contracts")
+}
+
+enum TxStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  CANCELLED
+}
