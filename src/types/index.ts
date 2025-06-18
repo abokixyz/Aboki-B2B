@@ -13,22 +13,12 @@ export interface Company {
 // Define User interface
 export interface User {
   id: string;
-  name: string;
   email: string;
+  role: string;
   companyId?: string;
+  name?: string; // Make name optional since Express doesn't expect it
 }
 
-// Fix the AuthenticatedRequest interface
-export interface AuthenticatedRequest extends Request {
-  user?: User; // Use the User interface for consistency
-  company?: Company; // Now properly typed with email property
-}
-
-// Alternative: If you want to keep company optional without email requirement
-export interface AuthenticatedRequestAlt extends Request {
-  user?: User;
-  company?: Partial<Company>; // Makes all Company properties optional
-}
 
 // API Response interfaces
 export interface ApiResponse<T = any> {
