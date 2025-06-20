@@ -1,12 +1,9 @@
-import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
-import redisClient from '../config/redis';
-import { HealthCheckResponse } from '../types';
+// src/controllers/health.js
+const mongoose = require('mongoose');
+const redisClient = require('../config/redis');
 
-const prisma = new PrismaClient();
-
-export const healthCheck = async (req: Request, res: Response) => {
-  const response: HealthCheckResponse = {
+const healthCheck = async (req, res) => {
+  const response = {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     services: {
@@ -16,9 +13,14 @@ export const healthCheck = async (req: Request, res: Response) => {
   };
 
   try {
-    // Test database connection
-    await prisma.$queryRaw`SELECT 1`;
-    response.services.database = 'connected';
+    // Test MongoDB connection
+    if (mongoose.connection.readyState === 1) {
+      await mongoose.connection.db.admin().ping();
+      response.services.database = 'connected';
+    } else {
+      response.services.database = 'disconnected';
+      response.status = 'unhealthy';
+    }
   } catch (error) {
     console.error('Database health check failed:', error);
     response.status = 'unhealthy';
@@ -43,10 +45,15 @@ export const healthCheck = async (req: Request, res: Response) => {
   res.status(statusCode).json(response);
 };
 
-export const basicHealth = (req: Request, res: Response) => {
-  res.json({ 
+const basicHealth = (req, res) => {
+  res.json({
     status: 'Server is running',
     timestamp: new Date().toISOString(),
     version: '1.0.0'
   });
+};
+
+module.exports = {
+  healthCheck,
+  basicHealth
 };

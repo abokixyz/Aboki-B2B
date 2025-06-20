@@ -1,13 +1,12 @@
-// src/routes/auth.ts
-import express from 'express';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
-import { PrismaClient } from '@prisma/client';
-import { config } from '../config';
+// src/routes/auth.js
+const express = require('express');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const { User, ApiKey, Company, UserTransaction } = require('../models');
+const config = require('../config');
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 // Generate API Keys
 const generateApiKeys = () => {
@@ -17,11 +16,11 @@ const generateApiKeys = () => {
 };
 
 // Generate JWT Token
-const generateToken = (userId: string): string => {
+const generateToken = (userId) => {
  return jwt.sign(
    { userId }, 
    config.jwt.secret, 
-   { expiresIn: config.jwt.expiresIn } as jwt.SignOptions
+   { expiresIn: config.jwt.expiresIn }
  );
 };
 
@@ -64,9 +63,7 @@ router.post('/signup', async (req, res) => {
    }
 
    // Check if user already exists
-   const existingUser = await prisma.user.findUnique({
-     where: { email }
-   });
+   const existingUser = await User.findOne({ email });
 
    if (existingUser) {
      return res.status(409).json({
@@ -77,9 +74,7 @@ router.post('/signup', async (req, res) => {
 
    // Validate company exists if companyId provided
    if (companyId) {
-     const company = await prisma.company.findUnique({
-       where: { id: companyId }
-     });
+     const company = await Company.findById(companyId);
      
      if (!company) {
        return res.status(400).json({
@@ -89,59 +84,40 @@ router.post('/signup', async (req, res) => {
      }
    }
 
-   // Hash password
-   const saltRounds = 12;
-   const hashedPassword = await bcrypt.hash(password, saltRounds);
-
    // Generate API keys
    const { publicKey, secretKey } = generateApiKeys();
    const hashedSecretKey = await bcrypt.hash(secretKey, 10);
 
-   // Create user with API keys
-   const user = await prisma.user.create({
-     data: {
-       email,
-       password: hashedPassword,
-       firstName,
-       lastName,
-       companyId,
-       phoneNumber,
-       role,
-       isActive: true,
-       emailVerified: false,
-       apiKeys: {
-         create: {
-           publicKey,
-           secretKey: hashedSecretKey,
-           isActive: true,
-           name: 'Default API Key',
-           permissions: 'READ,WRITE' // Changed to string
-         }
-       }
-     },
-     include: {
-       apiKeys: {
-         select: {
-           id: true,
-           publicKey: true,
-           name: true,
-           permissions: true,
-           isActive: true,
-           createdAt: true
-         }
-       },
-       company: {
-         select: {
-           id: true,
-           name: true,
-           email: true
-         }
-       }
-     }
+   // Create user
+   const user = await User.create({
+     email,
+     password, // Will be hashed by the pre-save middleware
+     firstName,
+     lastName,
+     companyId,
+     phoneNumber,
+     role,
+     isActive: true,
+     emailVerified: false
    });
 
+   // Create API key for the user
+   const apiKey = await ApiKey.create({
+     userId: user._id,
+     publicKey,
+     secretKey: hashedSecretKey,
+     isActive: true,
+     name: 'Default API Key',
+     permissions: 'READ,WRITE'
+   });
+
+   // Get user with populated company data
+   const userWithCompany = await User.findById(user._id)
+     .populate('companyId', 'id name email')
+     .select('-password');
+
    // Generate JWT token
-   const token = generateToken(user.id);
+   const token = generateToken(user._id);
 
    // Response (never send hashed secret key, only the plain one during signup)
    res.status(201).json({
@@ -149,21 +125,21 @@ router.post('/signup', async (req, res) => {
      message: 'User created successfully',
      data: {
        user: {
-         id: user.id,
-         email: user.email,
-         firstName: user.firstName,
-         lastName: user.lastName,
-         company: user.company,
-         phoneNumber: user.phoneNumber,
-         role: user.role,
-         isActive: user.isActive,
-         emailVerified: user.emailVerified,
-         createdAt: user.createdAt
+         id: userWithCompany._id,
+         email: userWithCompany.email,
+         firstName: userWithCompany.firstName,
+         lastName: userWithCompany.lastName,
+         company: userWithCompany.companyId,
+         phoneNumber: userWithCompany.phoneNumber,
+         role: userWithCompany.role,
+         isActive: userWithCompany.isActive,
+         emailVerified: userWithCompany.emailVerified,
+         createdAt: userWithCompany.createdAt
        },
        apiKeys: {
          publicKey,
          secretKey, // Only shown once during signup
-         keyId: user.apiKeys[0].id
+         keyId: apiKey._id
        },
        token
      },
@@ -192,30 +168,9 @@ router.post('/login', async (req, res) => {
    }
 
    // Find user
-   const user = await prisma.user.findUnique({
-     where: { email },
-     include: {
-       apiKeys: {
-         where: { isActive: true },
-         select: {
-           id: true,
-           publicKey: true,
-           name: true,
-           permissions: true,
-           isActive: true,
-           createdAt: true
-         }
-       },
-       company: {
-         select: {
-           id: true,
-           name: true,
-           email: true,
-           walletAddress: true
-         }
-       }
-     }
-   });
+   const user = await User.findOne({ email })
+     .populate('companyId', 'id name email walletAddress')
+     .select('+password');
 
    if (!user) {
      return res.status(401).json({
@@ -241,32 +196,36 @@ router.post('/login', async (req, res) => {
      });
    }
 
+   // Get user's active API keys
+   const apiKeys = await ApiKey.find({ 
+     userId: user._id, 
+     isActive: true 
+   }).select('id publicKey name permissions isActive createdAt lastUsedAt');
+
    // Generate JWT token
-   const token = generateToken(user.id);
+   const token = generateToken(user._id);
 
    // Update last login
-   await prisma.user.update({
-     where: { id: user.id },
-     data: { lastLoginAt: new Date() }
-   });
+   user.lastLoginAt = new Date();
+   await user.save();
 
    res.json({
      success: true,
      message: 'Login successful',
      data: {
        user: {
-         id: user.id,
+         id: user._id,
          email: user.email,
          firstName: user.firstName,
          lastName: user.lastName,
-         company: user.company,
+         company: user.companyId,
          phoneNumber: user.phoneNumber,
          role: user.role,
          isActive: user.isActive,
          emailVerified: user.emailVerified,
          lastLoginAt: user.lastLoginAt
        },
-       apiKeys: user.apiKeys,
+       apiKeys,
        token
      }
    });
@@ -293,9 +252,7 @@ router.post('/forgot-password', async (req, res) => {
    }
 
    // Check if user exists
-   const user = await prisma.user.findUnique({
-     where: { email }
-   });
+   const user = await User.findOne({ email });
 
    if (!user) {
      // Don't reveal if email exists or not for security
@@ -309,14 +266,10 @@ router.post('/forgot-password', async (req, res) => {
    const resetToken = crypto.randomBytes(32).toString('hex');
    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
 
-   // Store reset token (you'll need to add these fields to User model)
-   await prisma.user.update({
-     where: { id: user.id },
-     data: {
-       resetToken,
-       resetTokenExpiry
-     }
-   });
+   // Store reset token
+   user.resetToken = resetToken;
+   user.resetTokenExpiry = resetTokenExpiry;
+   await user.save();
 
    // TODO: Send email with reset link
    // For now, return the token (remove this in production)
@@ -356,13 +309,9 @@ router.post('/reset-password', async (req, res) => {
    }
 
    // Find user with valid reset token
-   const user = await prisma.user.findFirst({
-     where: {
-       resetToken: token,
-       resetTokenExpiry: {
-         gt: new Date()
-       }
-     }
+   const user = await User.findOne({
+     resetToken: token,
+     resetTokenExpiry: { $gt: new Date() }
    });
 
    if (!user) {
@@ -372,18 +321,11 @@ router.post('/reset-password', async (req, res) => {
      });
    }
 
-   // Hash new password
-   const hashedPassword = await bcrypt.hash(newPassword, 12);
-
    // Update password and clear reset token
-   await prisma.user.update({
-     where: { id: user.id },
-     data: {
-       password: hashedPassword,
-       resetToken: null,
-       resetTokenExpiry: null
-     }
-   });
+   user.password = newPassword; // Will be hashed by pre-save middleware
+   user.resetToken = null;
+   user.resetTokenExpiry = null;
+   await user.save();
 
    res.json({
      success: true,
@@ -429,12 +371,10 @@ router.post('/change-password', async (req, res) => {
    }
 
    // Verify JWT token
-   const decoded = jwt.verify(token, config.jwt.secret) as { userId: string };
+   const decoded = jwt.verify(token, config.jwt.secret);
    
    // Get user
-   const user = await prisma.user.findUnique({
-     where: { id: decoded.userId }
-   });
+   const user = await User.findById(decoded.userId).select('+password');
 
    if (!user || !user.isActive) {
      return res.status(401).json({
@@ -452,14 +392,9 @@ router.post('/change-password', async (req, res) => {
      });
    }
 
-   // Hash new password
-   const hashedPassword = await bcrypt.hash(newPassword, 12);
-
    // Update password
-   await prisma.user.update({
-     where: { id: user.id },
-     data: { password: hashedPassword }
-   });
+   user.password = newPassword; // Will be hashed by pre-save middleware
+   await user.save();
 
    res.json({
      success: true,
@@ -489,7 +424,7 @@ router.get('/transaction-history', async (req, res) => {
    }
 
    // Verify JWT token
-   const decoded = jwt.verify(token, config.jwt.secret) as { userId: string };
+   const decoded = jwt.verify(token, config.jwt.secret);
    
    // Get query parameters for filtering and pagination
    const { 
@@ -506,58 +441,50 @@ router.get('/transaction-history', async (req, res) => {
    const skip = (Number(page) - 1) * Number(limit);
 
    // Build where clause
-   const where: any = { userId: decoded.userId };
+   const where = { userId: decoded.userId };
    if (status) where.status = status;
    if (type) where.type = type;
    
    // Date filtering
    if (startDate || endDate) {
      where.createdAt = {};
-     if (startDate) where.createdAt.gte = new Date(startDate as string);
-     if (endDate) where.createdAt.lte = new Date(endDate as string);
+     if (startDate) where.createdAt.$gte = new Date(startDate);
+     if (endDate) where.createdAt.$lte = new Date(endDate);
    }
 
    // Get transactions and total count
    const [transactions, total] = await Promise.all([
-     prisma.userTransaction.findMany({
-       where,
-       skip,
-       take: Number(limit),
-       orderBy: { [sortBy as string]: sortOrder },
-       select: {
-         id: true,
-         type: true,
-         amount: true,
-         currency: true,
-         status: true,
-         blockchainTxId: true,
-         metadata: true,
-         createdAt: true,
-         updatedAt: true
-       }
-     }),
-     prisma.userTransaction.count({ where })
+     UserTransaction.find(where)
+       .skip(skip)
+       .limit(Number(limit))
+       .sort({ [sortBy]: sortOrder === 'desc' ? -1 : 1 })
+       .select('id type amount currency status blockchainTxId metadata createdAt updatedAt'),
+     UserTransaction.countDocuments(where)
    ]);
 
    // Get transaction statistics
-   const stats = await prisma.userTransaction.groupBy({
-     by: ['status'],
-     where: { userId: decoded.userId },
-     _count: { status: true },
-     _sum: { amount: true }
-   });
+   const stats = await UserTransaction.aggregate([
+     { $match: { userId: decoded.userId } },
+     {
+       $group: {
+         _id: '$status',
+         count: { $sum: 1 },
+         totalAmount: { $sum: { $toDouble: '$amount' } }
+       }
+     }
+   ]);
 
    // Calculate summary statistics
    const summary = {
      totalTransactions: total,
      totalAmount: transactions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0),
      byStatus: stats.reduce((acc, stat) => {
-       acc[stat.status] = {
-         count: stat._count.status,
-         totalAmount: Number(stat._sum.amount) || 0
+       acc[stat._id] = {
+         count: stat.count,
+         totalAmount: stat.totalAmount || 0
        };
        return acc;
-     }, {} as any)
+     }, {})
    };
 
    res.json({
@@ -599,25 +526,13 @@ router.get('/transaction/:id', async (req, res) => {
    }
 
    // Verify JWT token
-   const decoded = jwt.verify(token, config.jwt.secret) as { userId: string };
+   const decoded = jwt.verify(token, config.jwt.secret);
    const { id } = req.params;
 
-   const transaction = await prisma.userTransaction.findFirst({
-     where: {
-       id,
-       userId: decoded.userId // Ensure user can only access their own transactions
-     },
-     include: {
-       user: {
-         select: {
-           id: true,
-           email: true,
-           firstName: true,
-           lastName: true
-         }
-       }
-     }
-   });
+   const transaction = await UserTransaction.findOne({
+     _id: id,
+     userId: decoded.userId // Ensure user can only access their own transactions
+   }).populate('userId', 'id email firstName lastName');
 
    if (!transaction) {
      return res.status(404).json({
@@ -649,30 +564,27 @@ router.post('/generate-api-key', async (req, res) => {
    const { publicKey, secretKey } = generateApiKeys();
    const hashedSecretKey = await bcrypt.hash(secretKey, 10);
 
-   const apiKey = await prisma.apiKey.create({
-     data: {
-       userId,
-       publicKey,
-       secretKey: hashedSecretKey,
-       name,
-       permissions,
-       isActive: true
-     },
-     select: {
-       id: true,
-       publicKey: true,
-       name: true,
-       permissions: true,
-       isActive: true,
-       createdAt: true
-     }
+   const apiKey = await ApiKey.create({
+     userId,
+     publicKey,
+     secretKey: hashedSecretKey,
+     name,
+     permissions,
+     isActive: true
    });
 
    res.status(201).json({
      success: true,
      message: 'API key generated successfully',
      data: {
-       apiKey,
+       apiKey: {
+         id: apiKey._id,
+         publicKey: apiKey.publicKey,
+         name: apiKey.name,
+         permissions: apiKey.permissions,
+         isActive: apiKey.isActive,
+         createdAt: apiKey.createdAt
+       },
        secretKey // Only shown once
      },
      warning: 'Store your secret key securely. It will not be shown again.'
@@ -692,22 +604,12 @@ router.get('/api-keys/:userId', async (req, res) => {
  try {
    const { userId } = req.params;
 
-   const apiKeys = await prisma.apiKey.findMany({
-     where: { 
-       userId,
-       isActive: true 
-     },
-     select: {
-       id: true,
-       publicKey: true,
-       name: true,
-       permissions: true,
-       isActive: true,
-       createdAt: true,
-       lastUsedAt: true
-     },
-     orderBy: { createdAt: 'desc' }
-   });
+   const apiKeys = await ApiKey.find({ 
+     userId,
+     isActive: true 
+   })
+   .select('id publicKey name permissions isActive createdAt lastUsedAt')
+   .sort({ createdAt: -1 });
 
    res.json({
      success: true,
@@ -728,12 +630,9 @@ router.delete('/api-keys/:keyId', async (req, res) => {
  try {
    const { keyId } = req.params;
 
-   await prisma.apiKey.update({
-     where: { id: keyId },
-     data: { 
-       isActive: false,
-       revokedAt: new Date()
-     }
+   await ApiKey.findByIdAndUpdate(keyId, { 
+     isActive: false,
+     revokedAt: new Date()
    });
 
    res.json({
@@ -750,4 +649,4 @@ router.delete('/api-keys/:keyId', async (req, res) => {
  }
 });
 
-export default router;
+module.exports = router;

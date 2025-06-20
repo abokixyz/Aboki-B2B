@@ -1,9 +1,9 @@
-// src/routes/index.ts
-import express from 'express';
-import authRoutes from './auth';
-import companyRoutes from './companies';
-import transactionRoutes from './transactions';
-import healthRoutes from './health';
+// src/routes/index.js
+const express = require('express');
+const authRoutes = require('./auth');
+const companyRoutes = require('./companies');
+const transactionRoutes = require('./transactions');
+const healthRoutes = require('./health');
 
 const router = express.Router();
 
@@ -56,4 +56,4 @@ router.get('/', (req, res) => {
  });
 });
 
-export default router;
+module.exports = router;
