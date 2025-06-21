@@ -1,10 +1,9 @@
-// src/services/emailService.js - Use verified sender
+// src/services/emailService.js - Use the verified custom domain
 const mailOptions = {
   from: {
     name: 'Aboki B2B Platform',
-    address: process.env.EMAIL_USER // This will be your verified Brevo email
+    address: 'hello@aboki.xyz' // Now this is verified!
   },
-  replyTo: 'hello@aboki.xyz', // People can still reply to your custom domain
   to: email,
   subject: 'Password Reset Request - Aboki B2B Platform',
   html: `
