@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { User, ApiKey, Company, UserTransaction } = require('../models');
 const config = require('../config');
+const emailService = require('../services/emailService');
 
 const router = express.Router();
 
@@ -239,7 +240,7 @@ router.post('/login', async (req, res) => {
  }
 });
 
-// Forgot Password Route
+// Enhanced Forgot Password Route
 router.post('/forgot-password', async (req, res) => {
  try {
    const { email } = req.body;
@@ -251,14 +252,23 @@ router.post('/forgot-password', async (req, res) => {
      });
    }
 
+   // Email validation
+   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+   if (!emailRegex.test(email)) {
+     return res.status(400).json({
+       success: false,
+       error: 'Invalid email format'
+     });
+   }
+
    // Check if user exists
    const user = await User.findOne({ email });
 
+   // For security, always return success even if user doesn't exist
    if (!user) {
-     // Don't reveal if email exists or not for security
      return res.json({
        success: true,
-       message: 'If the email exists, a reset link has been sent'
+       message: 'If an account with this email exists, a reset link has been sent'
      });
    }
 
@@ -271,12 +281,24 @@ router.post('/forgot-password', async (req, res) => {
    user.resetTokenExpiry = resetTokenExpiry;
    await user.save();
 
-   // TODO: Send email with reset link
-   // For now, return the token (remove this in production)
+   // Send email
+   const emailResult = await emailService.sendPasswordResetEmail(
+     email, 
+     resetToken, 
+     `${user.firstName} ${user.lastName}`
+   );
+
+   if (!emailResult.success) {
+     console.error('Failed to send reset email:', emailResult.error);
+     return res.status(500).json({
+       success: false,
+       error: 'Failed to send reset email'
+     });
+   }
+
    res.json({
      success: true,
-     message: 'Password reset link sent to your email',
-     resetToken // Remove this in production
+     message: 'Password reset link has been sent to your email'
    });
 
  } catch (error) {
@@ -288,7 +310,7 @@ router.post('/forgot-password', async (req, res) => {
  }
 });
 
-// Reset Password Route
+// Enhanced Reset Password Route
 router.post('/reset-password', async (req, res) => {
  try {
    const { token, newPassword } = req.body;
@@ -326,6 +348,12 @@ router.post('/reset-password', async (req, res) => {
    user.resetToken = null;
    user.resetTokenExpiry = null;
    await user.save();
+
+   // Send confirmation email
+   await emailService.sendPasswordChangeConfirmation(
+     user.email,
+     `${user.firstName} ${user.lastName}`
+   );
 
    res.json({
      success: true,
