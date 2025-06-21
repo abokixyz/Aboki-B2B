@@ -140,7 +140,7 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Find user
+    // Find user (don't create new user)
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
       return res.status(401).json({
@@ -158,10 +158,14 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Update last login
-    user.lastLogin = new Date();
-    user.updatedAt = new Date();
-    await user.save();
+    // Update last login (only update, don't validate required fields)
+    await User.updateOne(
+      { _id: user._id },
+      { 
+        lastLogin: new Date(),
+        updatedAt: new Date() 
+      }
+    );
 
     // Generate JWT token
     const token = jwt.sign(
@@ -181,7 +185,7 @@ router.post('/login', async (req, res) => {
       fullName: user.fullName,
       phone: user.phone,
       isVerified: user.isVerified,
-      lastLogin: user.lastLogin,
+      lastLogin: new Date(),
       createdAt: user.createdAt
     };
 
