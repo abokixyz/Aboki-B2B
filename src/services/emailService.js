@@ -1,19 +1,17 @@
-// src/services/emailService.js - Using Brevo API
+// src/services/emailService.js - Fixed Brevo API implementation
 const brevo = require('@getbrevo/brevo');
 
 class EmailService {
   constructor() {
-    let defaultClient = brevo.ApiClient.instance;
-    let apiKey = defaultClient.authentications['api-key'];
-    apiKey.apiKey = process.env.BREVO_API_KEY;
-    
+    // Set the API key for Brevo
+    brevo.ApiClient.instance.authentications['api-key'].apiKey = process.env.BREVO_API_KEY;
     this.apiInstance = new brevo.TransactionalEmailsApi();
   }
 
   async sendPasswordResetEmail(email, resetToken, userName) {
     const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
     
-    let sendSmtpEmail = new brevo.SendSmtpEmail();
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
     
     sendSmtpEmail.subject = "Password Reset Request - Aboki B2B Platform";
     sendSmtpEmail.to = [{ email: email, name: userName }];
@@ -95,7 +93,7 @@ class EmailService {
   }
 
   async sendPasswordChangeConfirmation(email, userName) {
-    let sendSmtpEmail = new brevo.SendSmtpEmail();
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
     
     sendSmtpEmail.subject = "Password Changed Successfully - Aboki B2B Platform";
     sendSmtpEmail.to = [{ email: email, name: userName }];
