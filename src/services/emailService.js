@@ -1,15 +1,16 @@
-// src/services/emailService.js
+// src/services/emailService.js - Fix the method name
 const nodemailer = require('nodemailer');
 
 class EmailService {
   constructor() {
-    this.transporter = nodemailer.createTransporter({
+    // Fix: createTransport (not createTransporter)
+    this.transporter = nodemailer.createTransport({
       host: 'smtp-relay.brevo.com',
       port: 587,
-      secure: false, // true for 465, false for other ports
+      secure: false,
       auth: {
-        user: process.env.EMAIL_USER, // hello@aboki.xyz
-        pass: process.env.EMAIL_PASSWORD // Your Brevo SMTP password
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASSWORD
       }
     });
   }
@@ -20,7 +21,7 @@ class EmailService {
     const mailOptions = {
       from: {
         name: 'Aboki B2B Platform',
-        address: process.env.EMAIL_USER // hello@aboki.xyz
+        address: process.env.EMAIL_USER
       },
       to: email,
       subject: 'Password Reset Request - Aboki B2B Platform',
@@ -139,16 +140,6 @@ class EmailService {
                 <p style="margin: 0; color: #dc2626; font-weight: bold;">
                   🚨 If you didn't make this change, please contact our support team immediately.
                 </p>
-              </div>
-              
-              <div style="background-color: #f0f9ff; border: 1px solid #3b82f6; border-radius: 6px; padding: 16px; margin: 20px 0;">
-                <h3 style="margin-top: 0; color: #1e40af;">🔐 Security Recommendations:</h3>
-                <ul style="color: #1e40af; margin-bottom: 0;">
-                  <li>Use a strong, unique password</li>
-                  <li>Don't share your login credentials</li>
-                  <li>Log out from shared devices</li>
-                  <li>Monitor your account for unusual activity</li>
-                </ul>
               </div>
             </div>
             <div class="footer">
