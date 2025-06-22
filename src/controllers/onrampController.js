@@ -1,26 +1,26 @@
 const axios = require('axios');
 
 class OnrampController {
-  // Get NGN to crypto price conversion
-  async getNgnToCryptoPrice(req, res) {
+  // Get NGN price for specific crypto amount
+  async getCryptoToNgnPrice(req, res) {
     try {
       const { 
         cryptoSymbol = 'BTC', 
-        ngnAmount = 1000000 // Default 1 million NGN
+        cryptoAmount = 0.1 // Default 0.1 crypto
       } = req.query;
 
       // Validate required parameters
       if (!cryptoSymbol) {
         return res.status(400).json({
           success: false,
-          error: 'cryptoSymbol is required'
+          error: 'cryptoSymbol is required (e.g., BTC, ETH, USDT)'
         });
       }
 
-      if (!ngnAmount || isNaN(ngnAmount) || parseFloat(ngnAmount) <= 0) {
+      if (!cryptoAmount || isNaN(cryptoAmount) || parseFloat(cryptoAmount) <= 0) {
         return res.status(400).json({
           success: false,
-          error: 'ngnAmount must be a valid positive number'
+          error: 'cryptoAmount must be a valid positive number'
         });
       }
 
@@ -57,25 +57,29 @@ class OnrampController {
         });
       }
 
-      // Calculate how much crypto user can buy with NGN amount
-      const cryptoAmount = parseFloat(ngnAmount) / cryptoPriceInNgn;
+      // Calculate total NGN needed for the crypto amount
+      const totalNgnNeeded = parseFloat(cryptoAmount) * cryptoPriceInNgn;
 
       res.json({
         success: true,
         data: {
-          fromCurrency: 'NGN',
-          toCurrency: cryptoSymbol.toUpperCase(),
-          ngnAmount: parseFloat(ngnAmount),
-          cryptoPriceInNgn: cryptoPriceInNgn,
-          cryptoAmountToBuy: parseFloat(cryptoAmount.toFixed(8)),
-          exchangeRate: `1 ${cryptoSymbol.toUpperCase()} = ₦${cryptoPriceInNgn.toLocaleString()}`,
+          cryptoSymbol: cryptoSymbol.toUpperCase(),
+          cryptoAmount: parseFloat(cryptoAmount),
+          unitPriceInNgn: cryptoPriceInNgn,
+          totalNgnNeeded: parseFloat(totalNgnNeeded.toFixed(2)),
+          formattedPrice: `₦${totalNgnNeeded.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          exchangeRate: `1 ${cryptoSymbol.toUpperCase()} = ₦${cryptoPriceInNgn.toLocaleString('en-NG')}`,
+          breakdown: {
+            youWant: `${cryptoAmount} ${cryptoSymbol.toUpperCase()}`,
+            youPay: `₦${totalNgnNeeded.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          },
           timestamp: new Date().toISOString(),
           source: 'CryptoCompare'
         }
       });
 
     } catch (error) {
-      console.error('Error fetching NGN to crypto price:', error);
+      console.error('Error fetching crypto to NGN price:', error);
       
       if (error.response) {
         // Log the full error response for debugging
