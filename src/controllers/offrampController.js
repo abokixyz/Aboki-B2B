@@ -47,7 +47,8 @@ class OfframpController {
       });
 
       // Extract rate data from Paycrest response
-      // Paycrest returns: { "message": "OK", "status": "success", "data": "1500" }
+      // Paycrest returns: { "message": "OK", "status": "success", "data": "156317" }
+      // The "data" field contains the TOTAL NGN amount for the requested crypto amount
       const { data: responseData, status, message } = response.data;
       
       if (status !== 'success' || !responseData) {
@@ -57,32 +58,34 @@ class OfframpController {
         });
       }
 
-      // The rate represents total NGN amount for the crypto amount requested
+      // The responseData is the total NGN amount you'll receive for the crypto amount
       const totalNgnToReceive = parseFloat(responseData);
       
-      // Calculate per-unit rate
-      const exchangeRate = totalNgnToReceive / parseFloat(cryptoAmount);
+      // Calculate per-unit exchange rate (NGN per 1 crypto token)
+      const exchangeRatePerUnit = totalNgnToReceive / parseFloat(cryptoAmount);
       
-      // Paycrest fees are built into their rates, but we'll show an estimated breakdown
-      const estimatedFeePercentage = 0.5; // 0.5% estimated fee
-      const estimatedFees = totalNgnToReceive * (estimatedFeePercentage / 100);
-      const netAmount = totalNgnToReceive - estimatedFees;
+      // Paycrest fees are already factored into their rates, but show estimated breakdown
+      const estimatedFeePercentage = 0.5; // 0.5% estimated fee for display
+      const grossBeforeFees = totalNgnToReceive / (1 - estimatedFeePercentage / 100);
+      const estimatedFees = grossBeforeFees - totalNgnToReceive;
+      const netAmount = totalNgnToReceive; // This is what user actually receives
 
       res.json({
         success: true,
         data: {
           cryptoSymbol: cryptoSymbol.toUpperCase(),
           cryptoAmount: parseFloat(cryptoAmount),
-          exchangeRate: parseFloat(exchangeRate.toFixed(2)),
-          grossNgnAmount: parseFloat(totalNgnToReceive.toFixed(2)),
+          exchangeRatePerUnit: parseFloat(exchangeRatePerUnit.toFixed(2)),
+          totalNgnToReceive: parseFloat(totalNgnToReceive.toFixed(2)),
+          estimatedGrossAmount: parseFloat(grossBeforeFees.toFixed(2)),
           estimatedFees: parseFloat(estimatedFees.toFixed(2)),
           netNgnAmount: parseFloat(netAmount.toFixed(2)),
           formattedAmount: `₦${netAmount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-          rateDisplay: `1 ${cryptoSymbol.toUpperCase()} = ₦${exchangeRate.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          rateDisplay: `1 ${cryptoSymbol.toUpperCase()} = ₦${exchangeRatePerUnit.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
           breakdown: {
             youSell: `${cryptoAmount} ${cryptoSymbol.toUpperCase()}`,
             youReceive: `₦${netAmount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-            estimatedFees: `₦${estimatedFees.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${estimatedFeePercentage}%)`
+            note: 'Fees are already included in Paycrest rates'
           },
           supportedTokens: supportedTokens,
           timestamp: new Date().toISOString(),
