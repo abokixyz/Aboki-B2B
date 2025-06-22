@@ -22,7 +22,6 @@ app.use(express.urlencoded({ extended: true }));
 
 // Setup Swagger documentation
 swaggerSetup(app);
-
 // Health check route (important for Render)
 app.get('/health', (req, res) => {
   res.status(200).json({
