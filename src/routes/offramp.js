@@ -1,15 +1,15 @@
 const express = require('express');
-const offrampController = require('../controllers/offrampController');
+const onrampController = require('../controllers/onrampController');
 
 const router = express.Router();
 
 /**
  * @swagger
- * /api/v1/offramp/crypto-to-ngn:
+ * /api/v1/onramp/crypto-to-ngn:
  *   get:
- *     summary: Get NGN amount for selling cryptocurrency (Off-ramp)
- *     description: Calculate how much Nigerian Naira you will receive for selling a specific amount of cryptocurrency
- *     tags: [Offramp]
+ *     summary: Get NGN price for specific cryptocurrency amount
+ *     description: Calculate how much Nigerian Naira is needed to buy a specific amount of cryptocurrency
+ *     tags: [Onramp]
  *     parameters:
  *       - in: query
  *         name: cryptoSymbol
@@ -17,17 +17,17 @@ const router = express.Router();
  *         schema:
  *           type: string
  *           example: BTC
- *         description: Cryptocurrency symbol to sell (e.g., BTC, ETH, USDT)
+ *         description: Cryptocurrency symbol (e.g., BTC, ETH, USDT, ADA)
  *       - in: query
  *         name: cryptoAmount
  *         required: true
  *         schema:
  *           type: number
  *           example: 0.1
- *         description: Amount of cryptocurrency you want to sell
+ *         description: Amount of cryptocurrency you want to buy
  *     responses:
  *       200:
- *         description: Successfully calculated NGN amount for crypto sale
+ *         description: Successfully calculated NGN price for crypto amount
  *         content:
  *           application/json:
  *             schema:
@@ -45,64 +45,35 @@ const router = express.Router();
  *                     cryptoAmount:
  *                       type: number
  *                       example: 0.1
+ *                     unitPriceInNgn:
+ *                       type: number
+ *                       example: 65000000
+ *                     totalNgnNeeded:
+ *                       type: number
+ *                       example: 6500000
+ *                     formattedPrice:
+ *                       type: string
+ *                       example: "₦6,500,000.00"
  *                     exchangeRate:
- *                       type: number
- *                       example: 63000000
- *                     grossNgnAmount:
- *                       type: number
- *                       example: 6300000
- *                     fees:
- *                       type: number
- *                       example: 31500
- *                     netNgnAmount:
- *                       type: number
- *                       example: 6268500
- *                     formattedAmount:
  *                       type: string
- *                       example: "₦6,268,500.00"
- *                     rateDisplay:
- *                       type: string
- *                       example: "1 BTC = ₦63,000,000.00"
+ *                       example: "1 BTC = ₦65,000,000"
  *                     breakdown:
  *                       type: object
  *                       properties:
- *                         youSell:
+ *                         youWant:
  *                           type: string
  *                           example: "0.1 BTC"
- *                         youReceive:
+ *                         youPay:
  *                           type: string
- *                           example: "₦6,268,500.00"
- *                         processingFees:
- *                           type: string
- *                           example: "₦31,500.00"
+ *                           example: "₦6,500,000.00"
  *                     timestamp:
  *                       type: string
  *                       example: "2025-06-22T10:30:00.000Z"
  *                     source:
  *                       type: string
- *                       example: "Paycrest"
- *                     environment:
- *                       type: string
- *                       example: "sandbox"
+ *                       example: "CryptoCompare"
  *       400:
  *         description: Invalid parameters
- *       404:
- *         description: Cryptocurrency not supported for off-ramp
- *       500:
- *         description: Server error
- */
-router.get('/crypto-to-ngn', offrampController.getCryptoToNgnOfframp);
-
-/**
- * @swagger
- * /api/v1/offramp/supported-currencies:
- *   get:
- *     summary: Get list of supported cryptocurrencies for off-ramp
- *     description: Retrieve all cryptocurrencies that can be sold for NGN through Paycrest
- *     tags: [Offramp]
- *     responses:
- *       200:
- *         description: Successfully fetched supported cryptocurrencies
  *         content:
  *           application/json:
  *             schema:
@@ -110,24 +81,18 @@ router.get('/crypto-to-ngn', offrampController.getCryptoToNgnOfframp);
  *               properties:
  *                 success:
  *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     supportedCryptocurrencies:
- *                       type: array
- *                       items:
- *                         type: string
- *                       example: ["BTC", "ETH", "USDT", "USDC", "BNB"]
- *                     timestamp:
- *                       type: string
- *                       example: "2025-06-22T10:30:00.000Z"
- *                     source:
- *                       type: string
- *                       example: "Paycrest"
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "cryptoAmount must be a valid positive number"
+ *       404:
+ *         description: Cryptocurrency not found
  *       500:
  *         description: Server error
  */
-router.get('/supported-currencies', offrampController.getSupportedCryptocurrencies);
+router.get('/crypto-to-ngn', onrampController.getCryptoToNgnPrice);
+
+// Keep the old endpoint for backward compatibility (optional)
+router.get('/ngn-to-crypto', onrampController.getCryptoToNgnPrice);
 
 module.exports = router;
