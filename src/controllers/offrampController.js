@@ -27,16 +27,6 @@ class OfframpController {
       // Use fallback URL if environment variable is not set
       const baseUrl = process.env.PAYCREST_BASE_URL || 'https://api.paycrest.io/v1';
 
-      if (!clientId || !clientSecret) {
-        return res.status(500).json({
-          success: false,
-          error: 'Paycrest API credentials not configured'
-        });
-      }
-
-      // Generate basic auth header
-      const authString = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-
       // Call Paycrest API to get off-ramp rate using correct endpoint structure
       // Endpoint format: GET {baseUrl}/rates/:token/:amount/:fiat
       const response = await axios.get(`${baseUrl}/rates/${cryptoSymbol.toLowerCase()}/${parseFloat(cryptoAmount)}/ngn`, {
@@ -48,7 +38,7 @@ class OfframpController {
       });
 
       // Extract rate data from Paycrest response
-      // Paycrest returns: { "message": "OK", "status": "success", "data": "1500" }
+      // Paycrest returns: { "status": "success", "message": "Rate fetched successfully", "data": "1563.17" }
       const { data: responseData, status, message } = response.data;
       
       if (status !== 'success' || !responseData) {
@@ -58,9 +48,11 @@ class OfframpController {
         });
       }
 
-      // The rate is returned as a string, convert to number
-      const exchangeRate = parseFloat(responseData);
-      const totalNgnToReceive = parseFloat(cryptoAmount) * exchangeRate;
+      // The rate represents total NGN amount for the crypto amount requested
+      const totalNgnToReceive = parseFloat(responseData);
+      
+      // Calculate per-unit rate
+      const exchangeRate = totalNgnToReceive / parseFloat(cryptoAmount);
       
       // Paycrest typically includes fees in their rates, but we'll assume 0.5% fee for display
       const estimatedFees = totalNgnToReceive * 0.005; // 0.5% fee
@@ -71,7 +63,7 @@ class OfframpController {
         data: {
           cryptoSymbol: cryptoSymbol.toUpperCase(),
           cryptoAmount: parseFloat(cryptoAmount),
-          exchangeRate: exchangeRate,
+          exchangeRate: parseFloat(exchangeRate.toFixed(2)),
           grossNgnAmount: parseFloat(totalNgnToReceive.toFixed(2)),
           fees: parseFloat(estimatedFees.toFixed(2)),
           netNgnAmount: parseFloat(netAmount.toFixed(2)),
@@ -84,7 +76,7 @@ class OfframpController {
           },
           timestamp: new Date().toISOString(),
           source: 'Paycrest',
-          environment: process.env.PAYCREST_ENVIRONMENT || 'sandbox'
+          environment: process.env.PAYCREST_ENVIRONMENT || 'production'
         }
       });
 
