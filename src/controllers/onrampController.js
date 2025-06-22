@@ -24,14 +24,28 @@ class OnrampController {
         });
       }
 
+      // Use fallback URL if environment variable is not set
+      const baseUrl = process.env.CRYPTOCOMPARE_BASE_URL || 'https://min-api.cryptocompare.com/data';
+      const apiKey = process.env.CRYPTOCOMPARE_API_KEY;
+
+      // Build request parameters
+      const params = {
+        fsym: cryptoSymbol.toUpperCase(),
+        tsyms: 'NGN'
+      };
+
+      // Only add API key if it exists
+      if (apiKey) {
+        params.api_key = apiKey;
+      }
+
       // Call CryptoCompare API to get crypto price in NGN
-      const response = await axios.get(`${process.env.CRYPTOCOMPARE_BASE_URL}/price`, {
-        params: {
-          fsym: cryptoSymbol.toUpperCase(),
-          tsyms: 'NGN',
-          api_key: process.env.CRYPTOCOMPARE_API_KEY
-        },
-        timeout: 10000
+      const response = await axios.get(`${baseUrl}/price`, {
+        params,
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'Aboki-B2B-Platform/1.0.0'
+        }
       });
 
       const cryptoPriceInNgn = response.data.NGN;
@@ -64,9 +78,16 @@ class OnrampController {
       console.error('Error fetching NGN to crypto price:', error);
       
       if (error.response) {
+        // Log the full error response for debugging
+        console.error('API Error Response:', {
+          status: error.response.status,
+          statusText: error.response.statusText,
+          data: error.response.data
+        });
+        
         return res.status(error.response.status).json({
           success: false,
-          error: error.response.data.Message || 'External API error'
+          error: error.response.data.Message || error.response.data.message || 'External API error'
         });
       }
 
@@ -74,6 +95,18 @@ class OnrampController {
         return res.status(408).json({
           success: false,
           error: 'Request timeout - please try again'
+        });
+      }
+
+      if (error.code === 'ERR_INVALID_URL') {
+        console.error('Environment variables:', {
+          CRYPTOCOMPARE_BASE_URL: process.env.CRYPTOCOMPARE_BASE_URL,
+          CRYPTOCOMPARE_API_KEY: process.env.CRYPTOCOMPARE_API_KEY ? 'SET' : 'NOT SET'
+        });
+        
+        return res.status(500).json({
+          success: false,
+          error: 'API configuration error - please contact support'
         });
       }
 
