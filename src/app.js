@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const connectDB = require('./config/database');
 const config = require('./config');
 const routes = require('./routes');
+const { swaggerSetup } = require('./config/swagger');
 
 const app = express();
 
@@ -19,10 +20,13 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Setup Swagger documentation
+swaggerSetup(app);
+
 // Health check route (important for Render)
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'OK', 
+  res.status(200).json({
+    status: 'OK',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development'
   });
@@ -36,6 +40,10 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString(),
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'development',
+    documentation: {
+      swagger: '/api-docs',
+      json: '/api-docs.json'
+    },
     endpoints: {
       health: '/health',
       api: '/api/v1',
@@ -71,6 +79,7 @@ app.use('*', (req, res) => {
     error: 'Route not found',
     availableRoutes: {
       health: '/health',
+      documentation: '/api-docs',
       api: '/api/v1',
       auth: '/api/v1/auth/*'
     }
@@ -86,6 +95,7 @@ app.listen(PORT, '0.0.0.0', () => {
   if (process.env.NODE_ENV !== 'production') {
     console.log(`🔗 Visit: http://localhost:${PORT}`);
     console.log(`📊 Health: http://localhost:${PORT}/health`);
+    console.log(`📚 Docs: http://localhost:${PORT}/api-docs`);
     console.log(`🔐 Auth: http://localhost:${PORT}/api/v1/auth`);
   }
 });
