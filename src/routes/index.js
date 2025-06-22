@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const onrampRoutes = require('./onramp');
 
 // Import existing route modules
 const authRoutes = require('./auth');
@@ -12,6 +13,7 @@ router.use('/auth', authRoutes);
 router.use('/business', businessRoutes);
 router.use('/tokens', tokensRoutes);
 router.use('/validate', tokenValidationRoutes);
+router.use('/onramp', onrampRoutes);
 
 // Health check endpoint
 router.get('/health', (req, res) => {
