@@ -5,15 +5,15 @@ class OfframpController {
   async getCryptoToNgnOfframp(req, res) {
     try {
       const { 
-        cryptoSymbol = 'BTC', 
-        cryptoAmount = 0.1 // Amount of crypto user wants to sell
+        cryptoSymbol = 'USDT', 
+        cryptoAmount = 100 // Amount of crypto user wants to sell
       } = req.query;
 
       // Validate required parameters
       if (!cryptoSymbol) {
         return res.status(400).json({
           success: false,
-          error: 'cryptoSymbol is required (e.g., BTC, ETH, USDT)'
+          error: 'cryptoSymbol is required (e.g., USDT, USDC)'
         });
       }
 
@@ -24,11 +24,20 @@ class OfframpController {
         });
       }
 
+      // Validate supported tokens according to Paycrest documentation
+      const supportedTokens = ['USDT', 'USDC'];
+      if (!supportedTokens.includes(cryptoSymbol.toUpperCase())) {
+        return res.status(400).json({
+          success: false,
+          error: `Token ${cryptoSymbol.toUpperCase()} is not supported. Supported tokens: ${supportedTokens.join(', ')}`
+        });
+      }
+
       // Use fallback URL if environment variable is not set
       const baseUrl = process.env.PAYCREST_BASE_URL || 'https://api.paycrest.io/v1';
 
       // Call Paycrest API to get off-ramp rate using correct endpoint structure
-      // Endpoint format: GET {baseUrl}/rates/:token/:amount/:fiat
+      // Endpoint format: GET /v1/rates/:token/:amount/:fiat
       const response = await axios.get(`${baseUrl}/rates/${cryptoSymbol.toLowerCase()}/${parseFloat(cryptoAmount)}/ngn`, {
         headers: {
           'Content-Type': 'application/json',
@@ -38,7 +47,7 @@ class OfframpController {
       });
 
       // Extract rate data from Paycrest response
-      // Paycrest returns: { "status": "success", "message": "Rate fetched successfully", "data": "1563.17" }
+      // Paycrest returns: { "message": "OK", "status": "success", "data": "1500" }
       const { data: responseData, status, message } = response.data;
       
       if (status !== 'success' || !responseData) {
@@ -54,8 +63,9 @@ class OfframpController {
       // Calculate per-unit rate
       const exchangeRate = totalNgnToReceive / parseFloat(cryptoAmount);
       
-      // Paycrest typically includes fees in their rates, but we'll assume 0.5% fee for display
-      const estimatedFees = totalNgnToReceive * 0.005; // 0.5% fee
+      // Paycrest fees are built into their rates, but we'll show an estimated breakdown
+      const estimatedFeePercentage = 0.5; // 0.5% estimated fee
+      const estimatedFees = totalNgnToReceive * (estimatedFeePercentage / 100);
       const netAmount = totalNgnToReceive - estimatedFees;
 
       res.json({
@@ -65,15 +75,16 @@ class OfframpController {
           cryptoAmount: parseFloat(cryptoAmount),
           exchangeRate: parseFloat(exchangeRate.toFixed(2)),
           grossNgnAmount: parseFloat(totalNgnToReceive.toFixed(2)),
-          fees: parseFloat(estimatedFees.toFixed(2)),
+          estimatedFees: parseFloat(estimatedFees.toFixed(2)),
           netNgnAmount: parseFloat(netAmount.toFixed(2)),
           formattedAmount: `₦${netAmount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
           rateDisplay: `1 ${cryptoSymbol.toUpperCase()} = ₦${exchangeRate.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
           breakdown: {
             youSell: `${cryptoAmount} ${cryptoSymbol.toUpperCase()}`,
             youReceive: `₦${netAmount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-            processingFees: `₦${estimatedFees.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            estimatedFees: `₦${estimatedFees.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${estimatedFeePercentage}%)`
           },
+          supportedTokens: supportedTokens,
           timestamp: new Date().toISOString(),
           source: 'Paycrest',
           environment: process.env.PAYCREST_ENVIRONMENT || 'production'
@@ -122,12 +133,92 @@ class OfframpController {
     }
   }
 
-  // Get supported cryptocurrencies for off-ramp
+  // Get supported cryptocurrencies for off-ramp (from Paycrest documentation)
   async getSupportedCryptocurrencies(req, res) {
     try {
-      const baseUrl = process.env.PAYCREST_BASE_URL || 'https://api.paycrest.io/v1';
+      // Based on Paycrest documentation, supported tokens are USDT and USDC
+      const supportedTokens = [
+        {
+          symbol: 'USDT',
+          name: 'Tether USD',
+          networks: ['tron', 'polygon', 'arbitrum-one', 'bnb-smart-chain'],
+          note: 'Not supported on Base network'
+        },
+        {
+          symbol: 'USDC',
+          name: 'USD Coin',
+          networks: ['base', 'polygon', 'arbitrum-one', 'bnb-smart-chain'],
+          note: 'Not supported on Tron network'
+        }
+      ];
 
-      // For supported currencies, we don't need authentication
+      res.json({
+        success: true,
+        data: {
+          supportedCryptocurrencies: supportedTokens,
+          supportedNetworks: ['tron', 'base', 'bnb-smart-chain', 'polygon', 'arbitrum-one'],
+          note: 'Only USDT and USDC are supported for off-ramp transactions',
+          timestamp: new Date().toISOString(),
+          source: 'Paycrest Documentation'
+        }
+      });
+
+    } catch (error) {
+      console.error('Error fetching supported cryptocurrencies:', error);
+      
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch supported cryptocurrencies'
+      });
+    }
+  }
+
+  // Get supported institutions for NGN (from Paycrest API)
+  async getSupportedInstitutions(req, res) {
+    try {
+      const baseUrl = process.env.PAYCREST_BASE_URL || 'https://api.paycrest.io/v1';
+      
+      // Call Paycrest API to get supported institutions for NGN
+      const response = await axios.get(`${baseUrl}/institutions/ngn`, {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      });
+
+      res.json({
+        success: true,
+        data: {
+          institutions: response.data.data || response.data,
+          currency: 'NGN',
+          timestamp: new Date().toISOString(),
+          source: 'Paycrest'
+        }
+      });
+
+    } catch (error) {
+      console.error('Error fetching supported institutions:', error);
+      
+      if (error.response) {
+        return res.status(error.response.status).json({
+          success: false,
+          error: error.response.data.message || 'Failed to fetch institutions'
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch supported institutions'
+      });
+    }
+  }
+
+  // Get all supported currencies (from Paycrest API)
+  async getSupportedCurrencies(req, res) {
+    try {
+      const baseUrl = process.env.PAYCREST_BASE_URL || 'https://api.paycrest.io/v1';
+      
+      // Call Paycrest API to get supported currencies
       const response = await axios.get(`${baseUrl}/currencies`, {
         headers: {
           'Content-Type': 'application/json'
@@ -138,18 +229,25 @@ class OfframpController {
       res.json({
         success: true,
         data: {
-          supportedCryptocurrencies: response.data.data || response.data,
+          currencies: response.data.data || response.data,
           timestamp: new Date().toISOString(),
           source: 'Paycrest'
         }
       });
 
     } catch (error) {
-      console.error('Error fetching supported cryptocurrencies:', error);
+      console.error('Error fetching supported currencies:', error);
       
+      if (error.response) {
+        return res.status(error.response.status).json({
+          success: false,
+          error: error.response.data.message || 'Failed to fetch currencies'
+        });
+      }
+
       res.status(500).json({
         success: false,
-        error: 'Failed to fetch supported cryptocurrencies'
+        error: 'Failed to fetch supported currencies'
       });
     }
   }
