@@ -26,8 +26,6 @@ class OfframpController {
 
       // Use fallback URL if environment variable is not set
       const baseUrl = process.env.PAYCREST_BASE_URL || 'https://api.paycrest.io/v1';
-      const clientId = process.env.PAYCREST_CLIENT_ID;
-      const clientSecret = process.env.PAYCREST_CLIENT_SECRET;
 
       if (!clientId || !clientSecret) {
         return res.status(500).json({
@@ -39,15 +37,10 @@ class OfframpController {
       // Generate basic auth header
       const authString = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
-      // Call Paycrest API to get off-ramp rate
-      const response = await axios.get(`${baseUrl}/rates/offramp`, {
-        params: {
-          from_currency: cryptoSymbol.toUpperCase(),
-          to_currency: 'NGN',
-          amount: parseFloat(cryptoAmount)
-        },
+      // Call Paycrest API to get off-ramp rate using correct endpoint structure
+      // Endpoint format: GET {baseUrl}/rates/:token/:amount/:fiat
+      const response = await axios.get(`${baseUrl}/rates/${cryptoSymbol.toLowerCase()}/${parseFloat(cryptoAmount)}/ngn`, {
         headers: {
-          'Authorization': `Basic ${authString}`,
           'Content-Type': 'application/json',
           'User-Agent': 'Aboki-B2B-Platform/1.0.0'
         },
@@ -55,19 +48,23 @@ class OfframpController {
       });
 
       // Extract rate data from Paycrest response
-      const { data: rateData } = response.data;
+      // Paycrest returns: { "message": "OK", "status": "success", "data": "1500" }
+      const { data: responseData, status, message } = response.data;
       
-      if (!rateData || !rateData.exchange_rate) {
+      if (status !== 'success' || !responseData) {
         return res.status(404).json({
           success: false,
-          error: `Off-ramp rate not available for ${cryptoSymbol.toUpperCase()} to NGN`
+          error: `Off-ramp rate not available: ${message || 'Unknown error'}`
         });
       }
 
-      const exchangeRate = rateData.exchange_rate;
-      const totalNgnToReceive = rateData.destination_amount || (parseFloat(cryptoAmount) * exchangeRate);
-      const fees = rateData.fees || 0;
-      const netAmount = totalNgnToReceive - fees;
+      // The rate is returned as a string, convert to number
+      const exchangeRate = parseFloat(responseData);
+      const totalNgnToReceive = parseFloat(cryptoAmount) * exchangeRate;
+      
+      // Paycrest typically includes fees in their rates, but we'll assume 0.5% fee for display
+      const estimatedFees = totalNgnToReceive * 0.005; // 0.5% fee
+      const netAmount = totalNgnToReceive - estimatedFees;
 
       res.json({
         success: true,
@@ -76,14 +73,14 @@ class OfframpController {
           cryptoAmount: parseFloat(cryptoAmount),
           exchangeRate: exchangeRate,
           grossNgnAmount: parseFloat(totalNgnToReceive.toFixed(2)),
-          fees: parseFloat(fees.toFixed(2)),
+          fees: parseFloat(estimatedFees.toFixed(2)),
           netNgnAmount: parseFloat(netAmount.toFixed(2)),
           formattedAmount: `₦${netAmount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
           rateDisplay: `1 ${cryptoSymbol.toUpperCase()} = ₦${exchangeRate.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
           breakdown: {
             youSell: `${cryptoAmount} ${cryptoSymbol.toUpperCase()}`,
             youReceive: `₦${netAmount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-            processingFees: `₦${fees.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            processingFees: `₦${estimatedFees.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
           },
           timestamp: new Date().toISOString(),
           source: 'Paycrest',
@@ -117,9 +114,7 @@ class OfframpController {
 
       if (error.code === 'ERR_INVALID_URL') {
         console.error('Environment variables:', {
-          PAYCREST_BASE_URL: process.env.PAYCREST_BASE_URL,
-          PAYCREST_CLIENT_ID: process.env.PAYCREST_CLIENT_ID ? 'SET' : 'NOT SET',
-          PAYCREST_CLIENT_SECRET: process.env.PAYCREST_CLIENT_SECRET ? 'SET' : 'NOT SET'
+          PAYCREST_BASE_URL: process.env.PAYCREST_BASE_URL
         });
         
         return res.status(500).json({
@@ -139,25 +134,10 @@ class OfframpController {
   async getSupportedCryptocurrencies(req, res) {
     try {
       const baseUrl = process.env.PAYCREST_BASE_URL || 'https://api.paycrest.io/v1';
-      const clientId = process.env.PAYCREST_CLIENT_ID;
-      const clientSecret = process.env.PAYCREST_CLIENT_SECRET;
 
-      if (!clientId || !clientSecret) {
-        return res.status(500).json({
-          success: false,
-          error: 'Paycrest API credentials not configured'
-        });
-      }
-
-      // Generate basic auth header
-      const authString = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-
-      const response = await axios.get(`${baseUrl}/currencies/supported`, {
-        params: {
-          type: 'offramp'
-        },
+      // For supported currencies, we don't need authentication
+      const response = await axios.get(`${baseUrl}/currencies`, {
         headers: {
-          'Authorization': `Basic ${authString}`,
           'Content-Type': 'application/json'
         },
         timeout: 10000
