@@ -96,3 +96,4 @@ router.get('/crypto-to-ngn', onrampController.getCryptoToNgnPrice);
 router.get('/ngn-to-crypto', onrampController.getCryptoToNgnPrice);
 
 module.exports = router;
+
