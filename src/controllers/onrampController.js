@@ -48,27 +48,32 @@ class OnrampController {
         }
       });
 
-      const cryptoPriceInNgn = response.data.NGN;
+      const marketPriceInNgn = response.data.NGN;
       
-      if (!cryptoPriceInNgn) {
+      if (!marketPriceInNgn) {
         return res.status(404).json({
           success: false,
           error: `Price data not found for ${cryptoSymbol.toUpperCase()} in NGN`
         });
       }
 
+      // Apply 2% markup to the market price
+      const MARKUP_PERCENTAGE = 2; // 2% markup
+      const markupAmount = (marketPriceInNgn * MARKUP_PERCENTAGE) / 100;
+      const finalPriceInNgn = marketPriceInNgn + markupAmount;
+
       // Calculate total NGN needed for the crypto amount
-      const totalNgnNeeded = parseFloat(cryptoAmount) * cryptoPriceInNgn;
+      const totalNgnNeeded = parseFloat(cryptoAmount) * finalPriceInNgn;
 
       res.json({
         success: true,
         data: {
           cryptoSymbol: cryptoSymbol.toUpperCase(),
           cryptoAmount: parseFloat(cryptoAmount),
-          unitPriceInNgn: cryptoPriceInNgn,
+          unitPriceInNgn: parseFloat(finalPriceInNgn.toFixed(2)),
           totalNgnNeeded: parseFloat(totalNgnNeeded.toFixed(2)),
           formattedPrice: `₦${totalNgnNeeded.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-          exchangeRate: `1 ${cryptoSymbol.toUpperCase()} = ₦${cryptoPriceInNgn.toLocaleString('en-NG')}`,
+          exchangeRate: `1 ${cryptoSymbol.toUpperCase()} = ₦${finalPriceInNgn.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
           breakdown: {
             youWant: `${cryptoAmount} ${cryptoSymbol.toUpperCase()}`,
             youPay: `₦${totalNgnNeeded.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
