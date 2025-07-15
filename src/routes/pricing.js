@@ -1,16 +1,97 @@
 const express = require('express');
-const offrampController = require('../controllers/offrampController');
+const offrampController = require('../controllers/offramp-price-Controller');
+const onrampController = require('../controllers/onramp-price-Controller');
 const webhookController = require('../controllers/webhookController');
 
 const router = express.Router();
 
+// ============= PRICING ENDPOINTS =============
+
 /**
  * @swagger
- * /api/v1/offramp/rates:
+ * /api/v1/onramp-price:
  *   get:
- *     summary: Get token rate for off-ramp
- *     description: Get NGN amount for selling USDT or USDC
- *     tags: [Offramp]
+ *     summary: Get NGN price for buying cryptocurrency
+ *     description: Calculate how much Nigerian Naira is needed to buy a specific amount of cryptocurrency
+ *     tags: [Pricing]
+ *     parameters:
+ *       - in: query
+ *         name: cryptoSymbol
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: BTC
+ *         description: Cryptocurrency symbol (e.g., BTC, ETH, USDT, ADA)
+ *       - in: query
+ *         name: cryptoAmount
+ *         required: true
+ *         schema:
+ *           type: number
+ *           example: 0.1
+ *         description: Amount of cryptocurrency you want to buy
+ *     responses:
+ *       200:
+ *         description: Successfully calculated NGN price for crypto amount
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     cryptoSymbol:
+ *                       type: string
+ *                       example: "BTC"
+ *                     cryptoAmount:
+ *                       type: number
+ *                       example: 0.1
+ *                     unitPriceInNgn:
+ *                       type: number
+ *                       example: 65000000
+ *                     totalNgnNeeded:
+ *                       type: number
+ *                       example: 6500000
+ *                     formattedPrice:
+ *                       type: string
+ *                       example: "₦6,500,000.00"
+ *                     exchangeRate:
+ *                       type: string
+ *                       example: "1 BTC = ₦65,000,000"
+ *                     breakdown:
+ *                       type: object
+ *                       properties:
+ *                         youWant:
+ *                           type: string
+ *                           example: "0.1 BTC"
+ *                         youPay:
+ *                           type: string
+ *                           example: "₦6,500,000.00"
+ *                     timestamp:
+ *                       type: string
+ *                       example: "2025-06-22T10:30:00.000Z"
+ *                     source:
+ *                       type: string
+ *                       example: "CryptoCompare"
+ *       400:
+ *         description: Invalid parameters
+ *       404:
+ *         description: Cryptocurrency not found
+ *       500:
+ *         description: Server error
+ */
+router.get('/onramp-price', onrampController.getCryptoToNgnPrice);
+
+/**
+ * @swagger
+ * /api/v1/offramp-price:
+ *   get:
+ *     summary: Get NGN amount for selling tokens
+ *     description: Get NGN amount you'll receive for selling USDT or USDC
+ *     tags: [Pricing]
  *     parameters:
  *       - in: query
  *         name: token
@@ -33,10 +114,52 @@ const router = express.Router();
  *     responses:
  *       200:
  *         description: Successfully fetched token rate
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     token:
+ *                       type: string
+ *                       example: "USDT"
+ *                     amount:
+ *                       type: number
+ *                       example: 100
+ *                     ngnAmount:
+ *                       type: number
+ *                       example: 165000
+ *                     rate:
+ *                       type: number
+ *                       example: 1650
+ *                     formattedAmount:
+ *                       type: string
+ *                       example: "₦165,000.00"
+ *                     exchangeRate:
+ *                       type: string
+ *                       example: "1 USDT = ₦1,650"
+ *                     breakdown:
+ *                       type: object
+ *                       properties:
+ *                         youSell:
+ *                           type: string
+ *                           example: "100 USDT"
+ *                         youReceive:
+ *                           type: string
+ *                           example: "₦165,000.00"
  *       400:
  *         description: Invalid parameters
+ *       500:
+ *         description: Server error
  */
-router.get('/rates', offrampController.getTokenRate);
+router.get('/offramp-price', offrampController.getTokenRate);
+
+// ============= OFFRAMP ENDPOINTS =============
 
 /**
  * @swagger
@@ -62,7 +185,7 @@ router.get('/rates', offrampController.getTokenRate);
  *       200:
  *         description: Account verified successfully
  */
-router.post('/verify-account', offrampController.verifyAccount);
+router.post('/offramp/verify-account', offrampController.verifyAccount);
 
 /**
  * @swagger
@@ -75,7 +198,7 @@ router.post('/verify-account', offrampController.verifyAccount);
  *       200:
  *         description: Successfully fetched institutions
  */
-router.get('/institutions', offrampController.getSupportedInstitutions);
+router.get('/offramp/institutions', offrampController.getSupportedInstitutions);
 
 /**
  * @swagger
@@ -88,7 +211,7 @@ router.get('/institutions', offrampController.getSupportedInstitutions);
  *       200:
  *         description: Successfully fetched currencies
  */
-router.get('/currencies', offrampController.getSupportedCurrencies);
+router.get('/offramp/currencies', offrampController.getSupportedCurrencies);
 
 /**
  * @swagger
@@ -101,7 +224,7 @@ router.get('/currencies', offrampController.getSupportedCurrencies);
  *       200:
  *         description: Successfully fetched supported tokens
  */
-router.get('/tokens', offrampController.getSupportedTokens);
+router.get('/offramp/tokens', offrampController.getSupportedTokens);
 
 /**
  * @swagger
@@ -148,7 +271,7 @@ router.get('/tokens', offrampController.getSupportedTokens);
  *       200:
  *         description: Payment order initiated successfully
  */
-router.post('/orders', offrampController.initiatePaymentOrder);
+router.post('/offramp/orders', offrampController.initiatePaymentOrder);
 
 /**
  * @swagger
@@ -186,7 +309,7 @@ router.post('/orders', offrampController.initiatePaymentOrder);
  *       200:
  *         description: Successfully fetched payment orders
  */
-router.get('/orders', offrampController.getAllPaymentOrders);
+router.get('/offramp/orders', offrampController.getAllPaymentOrders);
 
 /**
  * @swagger
@@ -208,7 +331,7 @@ router.get('/orders', offrampController.getAllPaymentOrders);
  *       200:
  *         description: Successfully fetched payment order
  */
-router.get('/orders/:orderId', offrampController.getPaymentOrder);
+router.get('/offramp/orders/:orderId', offrampController.getPaymentOrder);
 
 /**
  * @swagger
@@ -221,7 +344,8 @@ router.get('/orders/:orderId', offrampController.getPaymentOrder);
  *       200:
  *         description: Webhook processed successfully
  */
-router.post('/webhook', webhookController.handlePaycrestWebhook);
+router.post('/offramp/webhook', webhookController.handlePaycrestWebhook);
+
+
 
 module.exports = router;
-
