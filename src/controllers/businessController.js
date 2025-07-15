@@ -3,6 +3,46 @@ const crypto = require('crypto');
 const { User, Business, ApiKey } = require('../models');
 
 class BusinessController {
+  // Helper method to initialize default tokens for a business
+  static initializeDefaultTokens(business) {
+    // Initialize supportedTokens and feeConfiguration
+    business.supportedTokens = {
+      base: [],
+      solana: [],
+      ethereum: []
+    };
+    business.feeConfiguration = {
+      base: [],
+      solana: [],
+      ethereum: []
+    };
+
+    // Add default tokens for each network
+    Object.keys(DEFAULT_TOKENS).forEach(network => {
+      DEFAULT_TOKENS[network].forEach(tokenTemplate => {
+        // Add to supported tokens
+        const token = {
+          ...tokenTemplate,
+          addedAt: new Date(),
+          metadata: {}
+        };
+        business.supportedTokens[network].push(token);
+
+        // Add default fee configuration (0% fee)
+        business.feeConfiguration[network].push({
+          contractAddress: tokenTemplate.contractAddress,
+          symbol: tokenTemplate.symbol,
+          feePercentage: 0, // Default fee is 0%
+          isActive: true,
+          isDefault: true,
+          updatedAt: new Date()
+        });
+      });
+    });
+
+    business.supportedTokensUpdatedAt = new Date();
+  }
+
   // Create a new business
   async createBusiness(req, res) {
     try {
@@ -62,6 +102,8 @@ class BusinessController {
         'Transportation',
         'Energy',
         'Agriculture',
+        'Fintech',
+        'Cryptocurrency',
         'Other'
       ];
 
@@ -118,17 +160,16 @@ class BusinessController {
         logo: logo?.trim(),
         status: 'pending_verification',
         verificationDocuments: [],
-        supportedTokens: {
-          base: [],
-          solana: []
-        },
         createdAt: new Date(),
         updatedAt: new Date()
       });
 
+      // Initialize default tokens and fees
+      BusinessController.initializeDefaultTokens(newBusiness);
+
       await newBusiness.save();
 
-      // Generate API keys for the business - Fixed method call
+      // Generate API keys for the business
       const apiKeys = await BusinessController.generateApiKeys(newBusiness._id, userId);
 
       // Remove sensitive fields from response
@@ -145,18 +186,22 @@ class BusinessController {
         logo: newBusiness.logo,
         status: newBusiness.status,
         supportedTokens: newBusiness.supportedTokens,
-        createdAt: newBusiness.createdAt,
-        apiCredentials: {
-          publicKey: apiKeys.publicKey,
-          clientKey: apiKeys.clientKey,
-          secretKeyPreview: apiKeys.secretKey.substring(0, 8) + '...',
-          note: 'Store the secret key securely. This is the only time it will be shown in full.'
-        }
+        defaultTokensInfo: {
+          message: 'Your business has been initialized with default supported tokens',
+          defaultTokensCount: {
+            base: DEFAULT_TOKENS.base.length,
+            solana: DEFAULT_TOKENS.solana.length,
+            ethereum: DEFAULT_TOKENS.ethereum.length,
+            total: DEFAULT_TOKENS.base.length + DEFAULT_TOKENS.solana.length + DEFAULT_TOKENS.ethereum.length
+          },
+          defaultFeePercentage: '0% (You can customize these fees)'
+        },
+        createdAt: newBusiness.createdAt
       };
 
       res.status(201).json({
         success: true,
-        message: 'Business created successfully with API credentials',
+        message: 'Business created successfully with API credentials and default supported tokens',
         data: businessResponse,
         apiCredentials: {
           publicKey: apiKeys.publicKey,
@@ -219,6 +264,71 @@ class BusinessController {
     }
   }
 
+  // Helper method to add default tokens to existing businesses
+  static async addDefaultTokensToExistingBusiness(business) {
+    try {
+      // Initialize if not exists
+      if (!business.supportedTokens) {
+        business.supportedTokens = { base: [], solana: [], ethereum: [] };
+      }
+      if (!business.feeConfiguration) {
+        business.feeConfiguration = { base: [], solana: [], ethereum: [] };
+      }
+
+      let tokensAdded = 0;
+
+      // Add missing default tokens for each network
+      Object.keys(DEFAULT_TOKENS).forEach(network => {
+        if (!business.supportedTokens[network]) {
+          business.supportedTokens[network] = [];
+        }
+        if (!business.feeConfiguration[network]) {
+          business.feeConfiguration[network] = [];
+        }
+
+        DEFAULT_TOKENS[network].forEach(tokenTemplate => {
+          // Check if token already exists
+          const existingToken = business.supportedTokens[network].find(
+            t => t.contractAddress.toLowerCase() === tokenTemplate.contractAddress.toLowerCase()
+          );
+
+          if (!existingToken) {
+            // Add to supported tokens
+            const token = {
+              ...tokenTemplate,
+              addedAt: new Date(),
+              metadata: {}
+            };
+            business.supportedTokens[network].push(token);
+
+            // Add default fee configuration (0% fee)
+            business.feeConfiguration[network].push({
+              contractAddress: tokenTemplate.contractAddress,
+              symbol: tokenTemplate.symbol,
+              feePercentage: 0, // Default fee is 0%
+              isActive: true,
+              isDefault: true,
+              updatedAt: new Date()
+            });
+
+            tokensAdded++;
+          }
+        });
+      });
+
+      if (tokensAdded > 0) {
+        business.supportedTokensUpdatedAt = new Date();
+        business.updatedAt = new Date();
+        await business.save();
+      }
+
+      return tokensAdded;
+    } catch (error) {
+      console.error('Error adding default tokens to existing business:', error);
+      throw error;
+    }
+  }
+
   // Get business profile
   async getBusinessProfile(req, res) {
     try {
@@ -234,11 +344,14 @@ class BusinessController {
         });
       }
 
+      // Add default tokens to existing businesses that don't have them
+      const tokensAdded = await BusinessController.addDefaultTokensToExistingBusiness(business);
+
       // Get API key info (without secret)
       const apiKey = await ApiKey.findOne({ businessId: business._id, isActive: true })
         .select('publicKey clientKey permissions isActive createdAt lastUsedAt');
 
-      res.json({
+      const response = {
         success: true,
         data: {
           ...business.toObject(),
@@ -251,7 +364,14 @@ class BusinessController {
             lastUsedAt: apiKey.lastUsedAt
           } : null
         }
-      });
+      };
+
+      // Add info if default tokens were just added
+      if (tokensAdded > 0) {
+        response.message = `Profile retrieved. ${tokensAdded} default tokens were added to your business.`;
+      }
+
+      res.json(response);
 
     } catch (error) {
       console.error('Get business profile error:', error);
@@ -421,7 +541,7 @@ class BusinessController {
         { isActive: false, updatedAt: new Date() }
       );
 
-      // Generate new API keys - Fixed method call
+      // Generate new API keys
       const newApiKeys = await BusinessController.generateApiKeys(business._id, userId);
 
       res.json({
@@ -489,6 +609,19 @@ class BusinessController {
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
+  }
+
+  // Get default tokens configuration (static method for reference)
+  static getDefaultTokensConfig() {
+    return {
+      tokens: DEFAULT_TOKENS,
+      info: {
+        description: 'These are the default tokens automatically added to every new business',
+        defaultFeePercentage: 0,
+        customizable: 'Businesses can customize fees and add more tokens',
+        protection: 'Default tokens cannot be deleted, only disabled'
+      }
+    };
   }
 }
 
