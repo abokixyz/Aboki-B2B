@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const { User, Business, ApiKey } = require('../models');
+const { DEFAULT_TOKENS, getDefaultTokensForNetwork, isDefaultToken, getDefaultTokenCount } = require('../config/defaultTokens');
 
 class BusinessController {
   // Helper method to initialize default tokens for a business
@@ -43,7 +44,51 @@ class BusinessController {
     business.supportedTokensUpdatedAt = new Date();
   }
 
-  // Create a new business
+  // Middleware to check if user account is activated
+  static async checkAccountActivation(req, res, next) {
+    try {
+      const userId = req.user.id;
+      
+      // Find user and check activation status
+      const user = await User.findById(userId).select('isAccountActivated accountStatus activatedAt activatedBy');
+      
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      // Check if account is activated
+      if (!user.isAccountActivated || user.accountStatus !== 'active') {
+        return res.status(403).json({
+          success: false,
+          message: 'Your account is pending admin activation. Please wait for admin approval before you can create or manage businesses.',
+          accountStatus: user.accountStatus || 'pending_activation',
+          registeredAt: user.createdAt,
+          note: 'Contact support if your account has been pending for more than 48 hours'
+        });
+      }
+
+      // Add user activation info to request for logging
+      req.userActivationInfo = {
+        isActivated: user.isAccountActivated,
+        status: user.accountStatus,
+        activatedAt: user.activatedAt,
+        activatedBy: user.activatedBy
+      };
+
+      next();
+    } catch (error) {
+      console.error('Account activation check error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error checking account activation status'
+      });
+    }
+  }
+
+  // Create a new business (with account activation check)
   async createBusiness(req, res) {
     try {
       const userId = req.user.id;
@@ -60,6 +105,10 @@ class BusinessController {
         address,
         logo
       } = req.body;
+
+      // Account activation is already checked by middleware
+      // Log the activation info for audit
+      console.log(`Business creation by activated user: ${userId}`, req.userActivationInfo);
 
       // Validation
       if (!businessName || !businessType || !industry || !country) {
@@ -114,23 +163,34 @@ class BusinessController {
         });
       }
 
-      // Check if user already has a business
-      const existingBusiness = await Business.findOne({ ownerId: userId });
+      // Check if user already has an ACTIVE business (exclude deleted ones)
+      const existingBusiness = await Business.findOne({ 
+        ownerId: userId,
+        status: { $ne: 'deleted' } // Exclude soft-deleted businesses
+      });
+      
       if (existingBusiness) {
         return res.status(409).json({
           success: false,
-          message: 'User already has a business. Only one business per user is allowed.'
+          message: 'User already has an active business. Only one active business per user is allowed.',
+          currentBusiness: {
+            businessId: existingBusiness.businessId,
+            businessName: existingBusiness.businessName,
+            status: existingBusiness.status
+          }
         });
       }
 
-      // Validate business name uniqueness
+      // Validate business name uniqueness (excluding deleted businesses)
       const existingBusinessName = await Business.findOne({ 
-        businessName: { $regex: new RegExp(`^${businessName}$`, 'i') }
+        businessName: { $regex: new RegExp(`^${businessName}$`, 'i') },
+        status: { $ne: 'deleted' } // Exclude soft-deleted businesses
       });
+      
       if (existingBusinessName) {
         return res.status(409).json({
           success: false,
-          message: 'Business name already exists. Please choose a different name.'
+          message: 'Business name already exists among active businesses. Please choose a different name.'
         });
       }
 
@@ -172,6 +232,9 @@ class BusinessController {
       // Generate API keys for the business
       const apiKeys = await BusinessController.generateApiKeys(newBusiness._id, userId);
 
+      // Get default token counts
+      const defaultTokenCounts = getDefaultTokenCount();
+
       // Remove sensitive fields from response
       const businessResponse = {
         businessId: newBusiness.businessId,
@@ -188,12 +251,7 @@ class BusinessController {
         supportedTokens: newBusiness.supportedTokens,
         defaultTokensInfo: {
           message: 'Your business has been initialized with default supported tokens',
-          defaultTokensCount: {
-            base: DEFAULT_TOKENS.base.length,
-            solana: DEFAULT_TOKENS.solana.length,
-            ethereum: DEFAULT_TOKENS.ethereum.length,
-            total: DEFAULT_TOKENS.base.length + DEFAULT_TOKENS.solana.length + DEFAULT_TOKENS.ethereum.length
-          },
+          defaultTokensCount: defaultTokenCounts,
           defaultFeePercentage: '0% (You can customize these fees)'
         },
         createdAt: newBusiness.createdAt
@@ -329,18 +387,20 @@ class BusinessController {
     }
   }
 
-  // Get business profile
+  // Get business profile (with account activation check)
   async getBusinessProfile(req, res) {
     try {
       const userId = req.user.id;
 
-      const business = await Business.findOne({ ownerId: userId })
-        .select('-registrationNumber -taxId -verificationDocuments');
+      const business = await Business.findOne({ 
+        ownerId: userId,
+        status: { $ne: 'deleted' } // Exclude soft-deleted businesses
+      }).select('-registrationNumber -taxId -verificationDocuments');
 
       if (!business) {
         return res.status(404).json({
           success: false,
-          message: 'Business not found. Please create a business first.'
+          message: 'No active business found. Please create a business first.'
         });
       }
 
@@ -383,7 +443,7 @@ class BusinessController {
     }
   }
 
-  // Update business profile
+  // Update business profile (with account activation check)
   async updateBusiness(req, res) {
     try {
       const userId = req.user.id;
@@ -395,11 +455,15 @@ class BusinessController {
         logo
       } = req.body;
 
-      const business = await Business.findOne({ ownerId: userId });
+      const business = await Business.findOne({ 
+        ownerId: userId,
+        status: { $ne: 'deleted' } // Exclude soft-deleted businesses
+      });
+      
       if (!business) {
         return res.status(404).json({
           success: false,
-          message: 'Business not found'
+          message: 'No active business found'
         });
       }
 
@@ -438,18 +502,20 @@ class BusinessController {
     }
   }
 
-  // Get verification status
+  // Get verification status (with account activation check)
   async getVerificationStatus(req, res) {
     try {
       const userId = req.user.id;
 
-      const business = await Business.findOne({ ownerId: userId })
-        .select('businessId businessName status verificationDocuments createdAt');
+      const business = await Business.findOne({ 
+        ownerId: userId,
+        status: { $ne: 'deleted' } // Exclude soft-deleted businesses
+      }).select('businessId businessName status verificationDocuments createdAt');
 
       if (!business) {
         return res.status(404).json({
           success: false,
-          message: 'Business not found'
+          message: 'No active business found'
         });
       }
 
@@ -474,7 +540,7 @@ class BusinessController {
     }
   }
 
-  // Delete business (soft delete)
+  // Delete business (soft delete) (with account activation check)
   async deleteBusiness(req, res) {
     try {
       const userId = req.user.id;
@@ -487,11 +553,15 @@ class BusinessController {
         });
       }
 
-      const business = await Business.findOne({ ownerId: userId });
+      const business = await Business.findOne({ 
+        ownerId: userId,
+        status: { $ne: 'deleted' } // Only find active businesses
+      });
+      
       if (!business) {
         return res.status(404).json({
           success: false,
-          message: 'Business not found'
+          message: 'No active business found to delete'
         });
       }
 
@@ -509,7 +579,13 @@ class BusinessController {
 
       res.json({
         success: true,
-        message: 'Business and associated API keys deleted successfully'
+        message: 'Business and associated API keys deleted successfully. You can now create a new business.',
+        data: {
+          deletedBusinessId: business.businessId,
+          deletedBusinessName: business.businessName,
+          deletedAt: business.deletedAt,
+          note: 'You can create a new business anytime now'
+        }
       });
 
     } catch (error) {
@@ -522,16 +598,20 @@ class BusinessController {
     }
   }
 
-  // Regenerate API keys
+  // Regenerate API keys (with account activation check)
   async regenerateApiKeys(req, res) {
     try {
       const userId = req.user.id;
 
-      const business = await Business.findOne({ ownerId: userId });
+      const business = await Business.findOne({ 
+        ownerId: userId,
+        status: { $ne: 'deleted' } // Exclude soft-deleted businesses
+      });
+      
       if (!business) {
         return res.status(404).json({
           success: false,
-          message: 'Business not found'
+          message: 'No active business found'
         });
       }
 
@@ -565,16 +645,20 @@ class BusinessController {
     }
   }
 
-  // Get API key information
+  // Get API key information (with account activation check)
   async getApiKeyInfo(req, res) {
     try {
       const userId = req.user.id;
 
-      const business = await Business.findOne({ ownerId: userId });
+      const business = await Business.findOne({ 
+        ownerId: userId,
+        status: { $ne: 'deleted' } // Exclude soft-deleted businesses
+      });
+      
       if (!business) {
         return res.status(404).json({
           success: false,
-          message: 'Business not found'
+          message: 'No active business found'
         });
       }
 
@@ -607,6 +691,49 @@ class BusinessController {
         success: false,
         message: 'Internal server error',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  // Check account activation status (for users to check their status)
+  async checkActivationStatus(req, res) {
+    try {
+      const userId = req.user.id;
+      
+      const user = await User.findById(userId).select('isAccountActivated accountStatus activatedAt activatedBy createdAt email username');
+      
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          userId,
+          email: user.email,
+          username: user.username,
+          isAccountActivated: user.isAccountActivated || false,
+          accountStatus: user.accountStatus || 'pending_activation',
+          registeredAt: user.createdAt,
+          activatedAt: user.activatedAt,
+          activatedBy: user.activatedBy,
+          message: user.isAccountActivated 
+            ? 'Your account is activated and you can create businesses'
+            : 'Your account is pending admin activation. Please wait for approval.',
+          nextSteps: user.isAccountActivated 
+            ? 'You can now create and manage your business'
+            : 'Contact support if your account has been pending for more than 48 hours'
+        }
+      });
+
+    } catch (error) {
+      console.error('Check activation status error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error checking activation status'
       });
     }
   }

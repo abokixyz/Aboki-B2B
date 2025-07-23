@@ -7,7 +7,7 @@ const options = {
     info: {
       title: 'Complete Authentication, Business Management & Onramp API',
       version: '1.0.0',
-      description: 'A comprehensive API for user authentication, business management, API key generation, token validation, pricing services, offramp operations, and business onramp integration with JWT tokens and secure credential management',
+      description: 'A comprehensive API for user authentication, business management, API key generation, token validation, pricing services, offramp operations, business onramp integration, and admin user management with JWT tokens and secure credential management',
       contact: {
         name: 'API Support',
         email: 'support@example.com'
@@ -56,6 +56,7 @@ const options = {
     './src/routes/pricing.js',                 // Pricing routes
     './src/routes/tokenValidation.js',         // Token validation routes
     './src/routes/tokens.js',                  // Token management routes
+    './src/routes/admin.js',                   // *** ADD THIS LINE - Admin routes ***
     './src/controllers/*.js',                  // Include controllers if they have swagger docs
     './src/middleware/*.js'                    // Include middleware docs if any
   ]
@@ -68,7 +69,7 @@ try {
   console.log('✅ Swagger specs generated successfully');
   console.log(`📄 Found ${Object.keys(specs.paths || {}).length} API endpoints`);
   
-  // Log the endpoint groups found
+  // Log the endpoint groups found (UPDATED to include admin)
   const paths = Object.keys(specs.paths || {});
   const groups = {
     auth: paths.filter(p => p.includes('/auth')).length,
@@ -78,10 +79,20 @@ try {
     offramp: paths.filter(p => p.includes('/offramp')).length,
     validation: paths.filter(p => p.includes('/validate')).length,
     webhooks: paths.filter(p => p.includes('/webhook')).length,
-    tokens: paths.filter(p => p.includes('/tokens')).length
+    tokens: paths.filter(p => p.includes('/tokens')).length,
+    admin: paths.filter(p => p.includes('/admin')).length  // *** ADD THIS LINE ***
   };
   
   console.log('📊 Endpoint breakdown:', groups);
+  
+  // Check specifically for admin routes
+  if (groups.admin > 0) {
+    console.log('👑 Admin routes detected:', groups.admin, 'endpoints');
+    const adminPaths = paths.filter(p => p.includes('/admin'));
+    adminPaths.forEach(path => console.log(`   - ${path}`));
+  } else {
+    console.log('⚠️  No admin routes found - check if admin.js file exists and has @swagger comments');
+  }
   
 } catch (error) {
   console.error('❌ Error generating Swagger specs:', error.message);
@@ -164,6 +175,11 @@ const swaggerSetup = (app) => {
           border-color: #f93e3e;
           background: rgba(249, 62, 62, 0.1);
         }
+        /* Admin section styling */
+        .swagger-ui .opblock-tag-section.is-open .opblock-tag:contains("Admin") {
+          background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+          color: white;
+        }
       `,
       customSiteTitle: "Complete Business & Onramp API Documentation",
       swaggerOptions: {
@@ -191,7 +207,7 @@ const swaggerSetup = (app) => {
       res.send(specs);
     });
 
-    // Health check for swagger
+    // Health check for swagger (UPDATED to include admin info)
     app.get('/api-docs/health', (req, res) => {
       const paths = Object.keys(specs.paths || {});
       const endpointGroups = {
@@ -202,7 +218,8 @@ const swaggerSetup = (app) => {
         offramp: paths.filter(p => p.includes('/offramp')).length,
         validation: paths.filter(p => p.includes('/validate')).length,
         webhooks: paths.filter(p => p.includes('/webhook')).length,
-        tokens: paths.filter(p => p.includes('/tokens')).length
+        tokens: paths.filter(p => p.includes('/tokens')).length,
+        admin: paths.filter(p => p.includes('/admin')).length  // *** ADD THIS LINE ***
       };
       
       res.json({
@@ -218,13 +235,15 @@ const swaggerSetup = (app) => {
           'Pricing Services',
           'Offramp Operations',
           'Liquidity Webhooks',
-          'API Key Management'
+          'API Key Management',
+          'Admin User Management'  // *** ADD THIS LINE ***
         ],
         swagger: {
           version: '3.0.0',
           title: specs.info.title,
           specGeneration: 'successful'
-        }
+        },
+        adminEndpoints: paths.filter(p => p.includes('/admin'))  // *** ADD THIS LINE ***
       });
     });
 
@@ -250,7 +269,8 @@ const swaggerSetup = (app) => {
           pricing: '/api/v1/onramp-price, /api/v1/offramp-price',
           offramp: '/api/v1/offramp/*',
           validation: '/api/v1/validate/*',
-          webhooks: '/api/v1/webhooks/*'
+          webhooks: '/api/v1/webhooks/*',
+          admin: '/api/v1/admin/*'  // *** ADD THIS LINE ***
         }
       });
     });
