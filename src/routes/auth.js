@@ -26,6 +26,20 @@ const { authenticateToken } = require('../middleware/auth'); // Use destructurin
  *         isVerified:
  *           type: boolean
  *           description: Email verification status
+ *         isAccountActivated:
+ *           type: boolean
+ *           description: Admin account activation status
+ *         accountStatus:
+ *           type: string
+ *           enum: [pending_activation, active, suspended, banned]
+ *           description: Account status
+ *         isApiAccessApproved:
+ *           type: boolean
+ *           description: Admin API access approval status
+ *         apiAccessStatus:
+ *           type: string
+ *           enum: [pending_approval, approved, rejected, revoked]
+ *           description: API access status
  *         createdAt:
  *           type: string
  *           format: date-time
@@ -48,6 +62,77 @@ const { authenticateToken } = require('../middleware/auth'); // Use destructurin
  *               $ref: '#/components/schemas/User'
  *             token:
  *               type: string
+ *             activationInfo:
+ *               type: object
+ *               properties:
+ *                 accountActivated:
+ *                   type: boolean
+ *                 apiAccessApproved:
+ *                   type: boolean
+ *                 canCreateBusiness:
+ *                   type: boolean
+ *                 canAccessApiCredentials:
+ *                   type: boolean
+ *                 nextSteps:
+ *                   type: string
+ *     ApiAccessRequest:
+ *       type: object
+ *       properties:
+ *         reason:
+ *           type: string
+ *           description: Reason for requesting API access
+ *           example: "I need API access to integrate payment processing into my e-commerce platform"
+ *         businessUseCase:
+ *           type: string
+ *           description: Detailed business use case
+ *           example: "Online marketplace for digital products with cryptocurrency payment options"
+ *     ActivationStatus:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *         data:
+ *           type: object
+ *           properties:
+ *             userId:
+ *               type: string
+ *             email:
+ *               type: string
+ *             username:
+ *               type: string
+ *             accountActivation:
+ *               type: object
+ *               properties:
+ *                 isAccountActivated:
+ *                   type: boolean
+ *                 accountStatus:
+ *                   type: string
+ *                 activatedAt:
+ *                   type: string
+ *                   format: date-time
+ *                 message:
+ *                   type: string
+ *             apiAccess:
+ *               type: object
+ *               properties:
+ *                 isApiAccessApproved:
+ *                   type: boolean
+ *                 apiAccessStatus:
+ *                   type: string
+ *                 apiAccessApprovedAt:
+ *                   type: string
+ *                   format: date-time
+ *                 message:
+ *                   type: string
+ *             overallStatus:
+ *               type: object
+ *               properties:
+ *                 canCreateBusiness:
+ *                   type: boolean
+ *                 canAccessApiCredentials:
+ *                   type: boolean
+ *                 nextSteps:
+ *                   type: string
  *     ErrorResponse:
  *       type: object
  *       properties:
@@ -69,15 +154,16 @@ const { authenticateToken } = require('../middleware/auth'); // Use destructurin
  * @swagger
  * tags:
  *   name: Authentication
- *   description: User authentication and authorization endpoints
+ *   description: User authentication and authorization endpoints with admin approval system
  */
 
 /**
  * @swagger
  * /api/v1/auth/signup:
  *   post:
- *     summary: Register a new user
+ *     summary: Register a new user (requires admin activation)
  *     tags: [Authentication]
+ *     description: Creates a new user account that requires admin activation before the user can create businesses. API access requires separate admin approval.
  *     requestBody:
  *       required: true
  *       content:
@@ -105,11 +191,23 @@ const { authenticateToken } = require('../middleware/auth'); // Use destructurin
  *                 example: +1234567890
  *     responses:
  *       201:
- *         description: User registered successfully
+ *         description: User registered successfully (pending admin activation)
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/AuthResponse'
+ *               allOf:
+ *                 - $ref: '#/components/schemas/AuthResponse'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         activationRequired:
+ *                           type: boolean
+ *                           example: true
+ *                         message:
+ *                           type: string
+ *                           example: "Account created successfully. Admin activation required before you can create businesses."
  *       400:
  *         description: Bad request - validation error
  *         content:
@@ -135,8 +233,9 @@ router.post('/signup', authController.signup);
  * @swagger
  * /api/v1/auth/login:
  *   post:
- *     summary: Login user
+ *     summary: Login user with activation status
  *     tags: [Authentication]
+ *     description: Authenticates user and returns account activation and API access status information
  *     requestBody:
  *       required: true
  *       content:
@@ -156,7 +255,7 @@ router.post('/signup', authController.signup);
  *                 example: password123
  *     responses:
  *       200:
- *         description: Login successful
+ *         description: Login successful with activation status
  *         content:
  *           application/json:
  *             schema:
@@ -181,6 +280,115 @@ router.post('/signup', authController.signup);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.post('/login', authController.login);
+
+/**
+ * @swagger
+ * /api/v1/auth/activation-status:
+ *   get:
+ *     summary: Check account activation and API access status
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     description: Returns detailed information about account activation and API access approval status
+ *     responses:
+ *       200:
+ *         description: Activation status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ActivationStatus'
+ *       401:
+ *         description: Unauthorized - invalid token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/activation-status', authenticateToken, authController.getActivationStatus);
+
+/**
+ * @swagger
+ * /api/v1/auth/request-api-access:
+ *   post:
+ *     summary: Request API access from admin
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     description: Submit a request for API access approval. Account must be activated first.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/ApiAccessRequest'
+ *     responses:
+ *       200:
+ *         description: API access request submitted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "API access request submitted successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     apiAccessStatus:
+ *                       type: string
+ *                       example: "pending_approval"
+ *                     requestedAt:
+ *                       type: string
+ *                       format: date-time
+ *                     reason:
+ *                       type: string
+ *                     businessUseCase:
+ *                       type: string
+ *                     note:
+ *                       type: string
+ *                       example: "Admin will review your request. You will be notified of the decision."
+ *       400:
+ *         description: Bad request - account not activated or request already pending
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorized - invalid token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       403:
+ *         description: Account not activated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post('/request-api-access', authenticateToken, authController.requestApiAccess);
 
 /**
  * @swagger
@@ -352,10 +560,11 @@ router.post('/change-password', authenticateToken, authController.changePassword
  * @swagger
  * /api/v1/auth/profile:
  *   get:
- *     summary: Get user profile
+ *     summary: Get user profile with activation status
  *     tags: [Authentication]
  *     security:
  *       - bearerAuth: []
+ *     description: Returns user profile including account activation and API access status
  *     responses:
  *       200:
  *         description: User profile retrieved successfully
@@ -368,7 +577,21 @@ router.post('/change-password', authenticateToken, authController.changePassword
  *                   type: boolean
  *                   example: true
  *                 data:
- *                   $ref: '#/components/schemas/User'
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/User'
+ *                     - type: object
+ *                       properties:
+ *                         accountSummary:
+ *                           type: object
+ *                           properties:
+ *                             canCreateBusiness:
+ *                               type: boolean
+ *                             canAccessApi:
+ *                               type: boolean
+ *                             activationStatus:
+ *                               type: string
+ *                             apiAccessStatus:
+ *                               type: string
  *       401:
  *         description: Unauthorized - invalid token
  *         content:
