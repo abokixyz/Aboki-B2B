@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const businessController = require('../controllers/businessController');
 const businessTokenController = require('../controllers/businessTokenController');
-const { authenticateToken, requireActivatedAccount, requireAccountActivationAndApiAccess } = require('../middleware/auth');
+const { authenticateToken } = require('../middleware/auth');
 
 // All routes require authentication
 router.use(authenticateToken);
@@ -195,13 +195,6 @@ router.use(authenticateToken);
  *         lastUsedAt:
  *           type: string
  *           format: date-time
- *         approvedBy:
- *           type: string
- *           description: Admin who approved the API key
- *         approvedAt:
- *           type: string
- *           format: date-time
- *           description: When API access was approved
  *     BusinessResponse:
  *       type: object
  *       properties:
@@ -216,15 +209,6 @@ router.use(authenticateToken);
  *               $ref: '#/components/schemas/Business'
  *             apiCredentials:
  *               $ref: '#/components/schemas/ApiCredentials'
- *             apiAccessNote:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                 message:
- *                   type: string
- *                 nextSteps:
- *                   type: string
  *     BusinessErrorResponse:
  *       type: object
  *       properties:
@@ -235,51 +219,13 @@ router.use(authenticateToken);
  *           type: string
  *         error:
  *           type: string
- *     ActivationRequiredError:
- *       type: object
- *       properties:
- *         success:
- *           type: boolean
- *           example: false
- *         message:
- *           type: string
- *           example: "Your account is pending admin activation. Please wait for admin approval before you can create or manage businesses."
- *         accountStatus:
- *           type: string
- *           example: "pending_activation"
- *         registeredAt:
- *           type: string
- *           format: date-time
- *         note:
- *           type: string
- *           example: "Contact support if your account has been pending for more than 48 hours"
- *     ApiAccessRequiredError:
- *       type: object
- *       properties:
- *         success:
- *           type: boolean
- *           example: false
- *         message:
- *           type: string
- *           example: "Your API access is pending admin approval. You can create a business but cannot access API credentials until approved."
- *         accountStatus:
- *           type: string
- *         apiAccessStatus:
- *           type: string
- *           example: "pending_approval"
- *         activatedAt:
- *           type: string
- *           format: date-time
- *         note:
- *           type: string
- *           example: "Contact support if your API access has been pending for more than 72 hours"
  */
 
 /**
  * @swagger
  * tags:
  *   - name: Business Management
- *     description: Business registration, management, and API key generation (requires admin approval)
+ *     description: Business registration, management, and API key generation
  *   - name: Business Token Management
  *     description: Manage supported destination tokens, fees, and payment configuration
  */
@@ -290,8 +236,8 @@ router.use(authenticateToken);
  * @swagger
  * /api/v1/business/create:
  *   post:
- *     summary: Register a new business (requires account activation, API credentials require admin approval)
- *     description: Creates a new business with automatic default tokens. API credentials are only generated if admin has approved API access. Account must be activated by admin first.
+ *     summary: Register a new business and generate API credentials
+ *     description: Creates a new business with automatic default tokens (ETH, USDC, USDT, SOL) and generates API credentials
  *     tags: [Business Management]
  *     security:
  *       - bearerAuth: []
@@ -359,45 +305,28 @@ router.use(authenticateToken);
  *                 example: "https://example.com/logo.png"
  *     responses:
  *       201:
- *         description: Business created successfully (API credentials depend on admin approval)
+ *         description: Business created successfully with API credentials and default tokens
  *         content:
  *           application/json:
  *             schema:
- *               allOf:
- *                 - $ref: '#/components/schemas/BusinessResponse'
- *                 - type: object
- *                   properties:
- *                     message:
- *                       type: string
- *                       example: "Business created successfully with default supported tokens. API credentials will be available after admin approval."
- *                     apiCredentials:
- *                       type: object
- *                       description: "Only present if admin has approved API access"
- *                     apiAccessNote:
- *                       type: object
- *                       description: "Present if API access not yet approved"
- *                       properties:
- *                         status:
- *                           type: string
- *                           example: "pending_approval"
- *                         message:
- *                           type: string
- *                           example: "Your API access is pending admin approval. You will receive API credentials once approved."
- *                         nextSteps:
- *                           type: string
- *                           example: "Contact support for API access approval status updates"
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Business created successfully with API credentials and default supported tokens"
+ *                 data:
+ *                   $ref: '#/components/schemas/Business'
+ *                 apiCredentials:
+ *                   $ref: '#/components/schemas/ApiCredentials'
  *       400:
  *         description: Bad request - validation error
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       409:
  *         description: Business already exists or name taken
  *         content:
@@ -411,307 +340,14 @@ router.use(authenticateToken);
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.post('/create', requireActivatedAccount, businessController.createBusiness);
-
-/**
- * @swagger
- * /api/v1/business/activation-status:
- *   get:
- *     summary: Check account activation and API access status
- *     description: Returns detailed information about account activation and API access approval status
- *     tags: [Business Management]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Activation status retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     userId:
- *                       type: string
- *                     email:
- *                       type: string
- *                     username:
- *                       type: string
- *                     accountActivation:
- *                       type: object
- *                       properties:
- *                         isAccountActivated:
- *                           type: boolean
- *                         accountStatus:
- *                           type: string
- *                         activatedAt:
- *                           type: string
- *                           format: date-time
- *                         message:
- *                           type: string
- *                     apiAccess:
- *                       type: object
- *                       properties:
- *                         isApiAccessApproved:
- *                           type: boolean
- *                         apiAccessStatus:
- *                           type: string
- *                         apiAccessApprovedAt:
- *                           type: string
- *                           format: date-time
- *                         message:
- *                           type: string
- *                     overallStatus:
- *                       type: object
- *                       properties:
- *                         canCreateBusiness:
- *                           type: boolean
- *                         canAccessApiCredentials:
- *                           type: boolean
- *                         nextSteps:
- *                           type: string
- *       401:
- *         description: Unauthorized - invalid token
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
- *       404:
- *         description: User not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
- */
-router.get('/activation-status', async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { User } = require('../models');
-    
-    const user = await User.findById(userId).select(
-      'email username firstName lastName isAccountActivated accountStatus activatedAt activatedBy ' +
-      'isApiAccessApproved apiAccessStatus apiAccessApprovedAt apiAccessApprovedBy apiAccessRequestedAt ' +
-      'apiAccessRejectedAt apiAccessRevokedAt createdAt'
-    );
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    // Helper function to get next steps message
-    const getNextStepsMessage = (user) => {
-      if (!user.isAccountActivated) {
-        return 'Wait for admin to activate your account, then you can create businesses';
-      } else if (!user.isApiAccessApproved) {
-        return 'You can create businesses, but contact support for API access approval to get API credentials';
-      } else {
-        return 'You have full access - create businesses and access API credentials';
-      }
-    };
-
-    res.json({
-      success: true,
-      data: {
-        userId: user._id,
-        email: user.email,
-        username: user.username,
-        accountActivation: {
-          isAccountActivated: user.isAccountActivated || false,
-          accountStatus: user.accountStatus || 'pending_activation',
-          activatedAt: user.activatedAt,
-          activatedBy: user.activatedBy,
-          message: user.isAccountActivated 
-            ? 'Your account is activated'
-            : 'Your account is pending admin activation'
-        },
-        apiAccess: {
-          isApiAccessApproved: user.isApiAccessApproved || false,
-          apiAccessStatus: user.apiAccessStatus || 'pending_approval',
-          apiAccessApprovedAt: user.apiAccessApprovedAt,
-          apiAccessApprovedBy: user.apiAccessApprovedBy,
-          apiAccessRequestedAt: user.apiAccessRequestedAt,
-          apiAccessRejectedAt: user.apiAccessRejectedAt,
-          apiAccessRevokedAt: user.apiAccessRevokedAt,
-          message: user.isApiAccessApproved 
-            ? 'Your API access is approved - you can access API credentials'
-            : 'Your API access is pending admin approval'
-        },
-        registeredAt: user.createdAt,
-        overallStatus: {
-          canCreateBusiness: user.canCreateBusiness ? user.canCreateBusiness() : (user.isAccountActivated || false),
-          canAccessApiCredentials: user.canAccessApi ? user.canAccessApi() : ((user.isAccountActivated && user.isApiAccessApproved) || false),
-          nextSteps: getNextStepsMessage(user)
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Get activation status error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error checking activation status'
-    });
-  }
-});
-
-/**
- * @swagger
- * /api/v1/business/request-api-access:
- *   post:
- *     summary: Request API access from admin
- *     description: Submit a request for API access approval. Account must be activated first.
- *     tags: [Business Management]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               reason:
- *                 type: string
- *                 example: "I need API access to integrate payment processing into my e-commerce platform"
- *                 description: "Reason for requesting API access"
- *               businessUseCase:
- *                 type: string
- *                 example: "Online marketplace for digital products with cryptocurrency payment options"
- *                 description: "Detailed business use case"
- *     responses:
- *       200:
- *         description: API access request submitted successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "API access request submitted successfully"
- *                 data:
- *                   type: object
- *                   properties:
- *                     apiAccessStatus:
- *                       type: string
- *                       example: "pending_approval"
- *                     requestedAt:
- *                       type: string
- *                       format: date-time
- *                     reason:
- *                       type: string
- *                     businessUseCase:
- *                       type: string
- *                     note:
- *                       type: string
- *                       example: "Admin will review your request. You will be notified of the decision."
- *       400:
- *         description: Bad request - account not activated or request already pending
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
- *       403:
- *         description: Account not activated
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
- */
-router.post('/request-api-access', requireActivatedAccount, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { reason, businessUseCase } = req.body;
-    const { User } = require('../models');
-
-    const user = await User.findById(userId).select(
-      'isAccountActivated accountStatus isApiAccessApproved apiAccessStatus email username'
-    );
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    // Check if already approved
-    if (user.isApiAccessApproved && user.apiAccessStatus === 'approved') {
-      return res.status(400).json({
-        success: false,
-        message: 'Your API access is already approved'
-      });
-    }
-
-    // Check if request is already pending
-    if (user.apiAccessStatus === 'pending_approval') {
-      return res.status(400).json({
-        success: false,
-        message: 'Your API access request is already pending admin review'
-      });
-    }
-
-    // Update user with API access request
-    user.apiAccessStatus = 'pending_approval';
-    user.apiAccessRequestedAt = new Date();
-    user.apiAccessReason = reason?.trim();
-    user.businessUseCase = businessUseCase?.trim();
-    user.updatedAt = new Date();
-    
-    await user.save();
-
-    // TODO: Send notification to admin about API access request
-    
-    res.json({
-      success: true,
-      message: 'API access request submitted successfully',
-      data: {
-        apiAccessStatus: 'pending_approval',
-        requestedAt: user.apiAccessRequestedAt,
-        reason: user.apiAccessReason,
-        businessUseCase: user.businessUseCase,
-        note: 'Admin will review your request. You will be notified of the decision.'
-      }
-    });
-
-  } catch (error) {
-    console.error('Request API access error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error submitting API access request'
-    });
-  }
-});
+router.post('/create', businessController.createBusiness);
 
 /**
  * @swagger
  * /api/v1/business/profile:
  *   get:
- *     summary: Get business profile with API credentials info (requires account activation)
- *     description: Retrieve complete business profile including default tokens and API credentials (if approved by admin)
+ *     summary: Get business profile with API credentials info
+ *     description: Retrieve complete business profile including default tokens and API credentials
  *     tags: [Business Management]
  *     security:
  *       - bearerAuth: []
@@ -733,7 +369,6 @@ router.post('/request-api-access', requireActivatedAccount, async (req, res) => 
  *                       $ref: '#/components/schemas/Business'
  *                     apiCredentials:
  *                       type: object
- *                       description: "Only present if admin has approved API access"
  *                       properties:
  *                         publicKey:
  *                           type: string
@@ -751,26 +386,6 @@ router.post('/request-api-access', requireActivatedAccount, async (req, res) => 
  *                         lastUsedAt:
  *                           type: string
  *                           format: date-time
- *                         approvedBy:
- *                           type: string
- *                         approvedAt:
- *                           type: string
- *                           format: date-time
- *                     apiAccessStatus:
- *                       type: object
- *                       properties:
- *                         isApproved:
- *                           type: boolean
- *                         status:
- *                           type: string
- *                         message:
- *                           type: string
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Business not found
  *         content:
@@ -784,13 +399,13 @@ router.post('/request-api-access', requireActivatedAccount, async (req, res) => 
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.get('/profile', requireActivatedAccount, businessController.getBusinessProfile);
+router.get('/profile', businessController.getBusinessProfile);
 
 /**
  * @swagger
  * /api/v1/business/update:
  *   put:
- *     summary: Update business profile (requires account activation)
+ *     summary: Update business profile
  *     description: Update editable business profile fields
  *     tags: [Business Management]
  *     security:
@@ -834,12 +449,6 @@ router.get('/profile', requireActivatedAccount, businessController.getBusinessPr
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/BusinessResponse'
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Business not found
  *         content:
@@ -853,13 +462,13 @@ router.get('/profile', requireActivatedAccount, businessController.getBusinessPr
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.put('/update', requireActivatedAccount, businessController.updateBusiness);
+router.put('/update', businessController.updateBusiness);
 
 /**
  * @swagger
  * /api/v1/business/verification-status:
  *   get:
- *     summary: Get business verification status (requires account activation)
+ *     summary: Get business verification status
  *     description: Check the current verification status of the business
  *     tags: [Business Management]
  *     security:
@@ -890,12 +499,6 @@ router.put('/update', requireActivatedAccount, businessController.updateBusiness
  *                     createdAt:
  *                       type: string
  *                       format: date-time
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Business not found
  *         content:
@@ -909,14 +512,14 @@ router.put('/update', requireActivatedAccount, businessController.updateBusiness
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.get('/verification-status', requireActivatedAccount, businessController.getVerificationStatus);
+router.get('/verification-status', businessController.getVerificationStatus);
 
 /**
  * @swagger
  * /api/v1/business/api-keys:
  *   get:
- *     summary: Get API key information (requires admin approval for API access)
- *     description: Retrieve API key details for security purposes (secret key never shown). Requires both account activation and admin API access approval.
+ *     summary: Get API key information (without secret key)
+ *     description: Retrieve API key details for security purposes (secret key never shown)
  *     tags: [Business Management]
  *     security:
  *       - bearerAuth: []
@@ -954,22 +557,9 @@ router.get('/verification-status', requireActivatedAccount, businessController.g
  *                     lastUsedAt:
  *                       type: string
  *                       format: date-time
- *                     approvedBy:
- *                       type: string
- *                       description: "Admin who approved the API access"
- *                     approvedAt:
- *                       type: string
- *                       format: date-time
- *                       description: "When API access was approved"
  *                     note:
  *                       type: string
  *                       example: "Secret key is never displayed for security reasons"
- *       403:
- *         description: API access not approved by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ApiAccessRequiredError'
  *       404:
  *         description: Business or API keys not found
  *         content:
@@ -983,14 +573,14 @@ router.get('/verification-status', requireActivatedAccount, businessController.g
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.get('/api-keys', requireAccountActivationAndApiAccess, businessController.getApiKeyInfo);
+router.get('/api-keys', businessController.getApiKeyInfo);
 
 /**
  * @swagger
  * /api/v1/business/regenerate-api-keys:
  *   post:
- *     summary: Regenerate API keys for business (requires admin approval for API access)
- *     description: Generate new API keys and deactivate old ones. Requires both account activation and admin API access approval.
+ *     summary: Regenerate API keys for business
+ *     description: Generate new API keys and deactivate old ones
  *     tags: [Business Management]
  *     security:
  *       - bearerAuth: []
@@ -1023,12 +613,6 @@ router.get('/api-keys', requireAccountActivationAndApiAccess, businessController
  *                     warning:
  *                       type: string
  *                       example: "Store these credentials securely. The secret key will not be shown again."
- *       403:
- *         description: API access not approved by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ApiAccessRequiredError'
  *       404:
  *         description: Business not found
  *         content:
@@ -1042,13 +626,13 @@ router.get('/api-keys', requireAccountActivationAndApiAccess, businessController
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.post('/regenerate-api-keys', requireAccountActivationAndApiAccess, businessController.regenerateApiKeys);
+router.post('/regenerate-api-keys', businessController.regenerateApiKeys);
 
 /**
  * @swagger
  * /api/v1/business/delete:
  *   delete:
- *     summary: Delete business (soft delete) and deactivate API keys (requires account activation)
+ *     summary: Delete business (soft delete) and deactivate API keys
  *     description: Soft delete business and deactivate all associated API keys
  *     tags: [Business Management]
  *     security:
@@ -1086,12 +670,6 @@ router.post('/regenerate-api-keys', requireAccountActivationAndApiAccess, busine
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Business not found
  *         content:
@@ -1105,7 +683,7 @@ router.post('/regenerate-api-keys', requireAccountActivationAndApiAccess, busine
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.delete('/delete', requireActivatedAccount, businessController.deleteBusiness);
+router.delete('/delete', businessController.deleteBusiness);
 
 // ============= TOKEN MANAGEMENT =============
 
@@ -1113,7 +691,7 @@ router.delete('/delete', requireActivatedAccount, businessController.deleteBusin
  * @swagger
  * /api/v1/business/tokens/supported:
  *   get:
- *     summary: Get all supported tokens for business (includes default tokens) - requires account activation
+ *     summary: Get all supported tokens for business (includes default tokens)
  *     description: Retrieve all configured destination tokens including default tokens (ETH, USDC, USDT, SOL) with their fee settings
  *     tags: [Business Token Management]
  *     security:
@@ -1192,12 +770,6 @@ router.delete('/delete', requireActivatedAccount, businessController.deleteBusin
  *                           type: string
  *                         defaultFeePercentage:
  *                           type: string
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Business not found
  *         content:
@@ -1211,13 +783,13 @@ router.delete('/delete', requireActivatedAccount, businessController.deleteBusin
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.get('/tokens/supported', requireActivatedAccount, businessTokenController.getSupportedTokens);
+router.get('/tokens/supported', businessTokenController.getSupportedTokens);
 
 /**
  * @swagger
  * /api/v1/business/tokens/breakdown:
  *   get:
- *     summary: Get detailed breakdown of default vs custom tokens (requires account activation)
+ *     summary: Get detailed breakdown of default vs custom tokens
  *     description: View default tokens (provided automatically) vs custom tokens (manually added) with their fees
  *     tags: [Business Token Management]
  *     security:
@@ -1306,12 +878,6 @@ router.get('/tokens/supported', requireActivatedAccount, businessTokenController
  *                           type: string
  *                         defaultTokenProtection:
  *                           type: string
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Business not found
  *         content:
@@ -1325,13 +891,13 @@ router.get('/tokens/supported', requireActivatedAccount, businessTokenController
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.get('/tokens/breakdown', requireActivatedAccount, businessTokenController.getTokensBreakdown);
+router.get('/tokens/breakdown', businessTokenController.getTokensBreakdown);
 
 /**
  * @swagger
  * /api/v1/business/tokens/add:
  *   post:
- *     summary: Add custom destination tokens (requires account activation)
+ *     summary: Add custom destination tokens
  *     description: Add new custom tokens that users can trade to on your platform (in addition to default tokens)
  *     tags: [Business Token Management]
  *     security:
@@ -1354,7 +920,7 @@ router.get('/tokens/breakdown', requireActivatedAccount, businessTokenController
  *                 type: array
  *                 items:
  *                   type: object
- *                   required:
+*                   required:
  *                     - address
  *                     - symbol
  *                     - name
@@ -1418,12 +984,6 @@ router.get('/tokens/breakdown', requireActivatedAccount, businessTokenController
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Business not found
  *         content:
@@ -1437,13 +997,13 @@ router.get('/tokens/breakdown', requireActivatedAccount, businessTokenController
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.post('/tokens/add', requireActivatedAccount, businessTokenController.addSupportedTokens);
+router.post('/tokens/add', businessTokenController.addSupportedTokens);
 
 /**
  * @swagger
  * /api/v1/business/tokens/update:
  *   put:
- *     summary: Update token configuration (works for both default and custom tokens) - requires account activation
+ *     summary: Update token configuration (works for both default and custom tokens)
  *     description: Update fee percentage and active status for existing tokens (including default tokens like ETH, USDC)
  *     tags: [Business Token Management]
  *     security:
@@ -1518,12 +1078,6 @@ router.post('/tokens/add', requireActivatedAccount, businessTokenController.addS
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Token or business not found
  *         content:
@@ -1537,13 +1091,13 @@ router.post('/tokens/add', requireActivatedAccount, businessTokenController.addS
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.put('/tokens/update', requireActivatedAccount, businessTokenController.updateTokenConfiguration);
+router.put('/tokens/update', businessTokenController.updateTokenConfiguration);
 
 /**
  * @swagger
  * /api/v1/business/tokens/bulk-update-fees:
  *   put:
- *     summary: Bulk update fees for multiple tokens (requires account activation)
+ *     summary: Bulk update fees for multiple tokens
  *     description: Convenient way to set fees for multiple tokens at once (both default and custom)
  *     tags: [Business Token Management]
  *     security:
@@ -1638,12 +1192,6 @@ router.put('/tokens/update', requireActivatedAccount, businessTokenController.up
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Business not found
  *         content:
@@ -1657,13 +1205,13 @@ router.put('/tokens/update', requireActivatedAccount, businessTokenController.up
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.put('/tokens/bulk-update-fees', requireActivatedAccount, businessTokenController.bulkUpdateFees);
+router.put('/tokens/bulk-update-fees', businessTokenController.bulkUpdateFees);
 
 /**
  * @swagger
  * /api/v1/business/tokens/remove:
  *   delete:
- *     summary: Remove supported token (with default token protection) - requires account activation
+ *     summary: Remove supported token (with default token protection)
  *     description: Remove a token from the supported destination tokens list. Default tokens cannot be deleted, only disabled.
  *     tags: [Business Token Management]
  *     security:
@@ -1736,12 +1284,6 @@ router.put('/tokens/bulk-update-fees', requireActivatedAccount, businessTokenCon
  *                   type: array
  *                   items:
  *                     type: string
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Token or business not found
  *         content:
@@ -1755,13 +1297,13 @@ router.put('/tokens/bulk-update-fees', requireActivatedAccount, businessTokenCon
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.delete('/tokens/remove', requireActivatedAccount, businessTokenController.removeSupportedToken);
+router.delete('/tokens/remove', businessTokenController.removeSupportedToken);
 
 /**
  * @swagger
  * /api/v1/business/tokens/clear:
  *   delete:
- *     summary: Clear all tokens for a network (with default token protection) - requires account activation
+ *     summary: Clear all tokens for a network (with default token protection)
  *     description: Remove all tokens from a specific network. By default, only custom tokens are removed to protect default tokens.
  *     tags: [Business Token Management]
  *     security:
@@ -1783,88 +1325,82 @@ router.delete('/tokens/remove', requireActivatedAccount, businessTokenController
  *                 type: boolean
  *                 example: true
  *               includeDefaults:
-                 type: boolean
-                 example: false
-                 description: "Set to true to also remove default tokens (not recommended)"
-     responses:
-       200:
-         description: Tokens cleared successfully
-         content:
-           application/json:
-             schema:
-               type: object
-               properties:
-                 success:
-                   type: boolean
-                   example: true
-                 message:
-                   type: string
-                   example: "Successfully cleared 2 custom tokens from base network"
-                 data:
-                   type: object
-                   properties:
-                     network:
-                       type: string
-                     removedTokensCount:
-                       type: number
-                     remainingTokensCount:
-                       type: number
-                     removedTokens:
-                       type: array
-                       items:
-                         type: object
-                         properties:
-                           symbol:
-                             type: string
-                           name:
-                             type: string
-                           isDefault:
-                             type: boolean
-                     keptTokens:
-                       type: array
-                       items:
-                         type: object
-                         properties:
-                           symbol:
-                             type: string
-                           name:
-                             type: string
-                           isDefault:
-                             type: boolean
-                     warning:
-                       type: string
-       400:
-         description: Confirmation required
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/BusinessErrorResponse'
-       403:
-         description: Account not activated by admin
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/ActivationRequiredError'
-       404:
-         description: Business not found
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/BusinessErrorResponse'
-       500:
-         description: Internal server error
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/BusinessErrorResponse'
+ *                 type: boolean
+ *                 example: false
+ *                 description: "Set to true to also remove default tokens (not recommended)"
+ *     responses:
+ *       200:
+ *         description: Tokens cleared successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Successfully cleared 2 custom tokens from base network"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     network:
+ *                       type: string
+ *                     removedTokensCount:
+ *                       type: number
+ *                     remainingTokensCount:
+ *                       type: number
+ *                     removedTokens:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           symbol:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           isDefault:
+ *                             type: boolean
+ *                     keptTokens:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           symbol:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           isDefault:
+ *                             type: boolean
+ *                     warning:
+ *                       type: string
+ *       400:
+ *         description: Confirmation required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/BusinessErrorResponse'
+ *       404:
+ *         description: Business not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/BusinessErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.delete('/tokens/clear', requireActivatedAccount, businessTokenController.clearNetworkTokens);
+router.delete('/tokens/clear', businessTokenController.clearNetworkTokens);
 
 /**
  * @swagger
  * /api/v1/business/tokens/wallets:
  *   put:
- *     summary: Set payment wallets for fee collection (requires account activation)
+ *     summary: Set payment wallets for fee collection
  *     description: Configure crypto wallets to receive trading fees from different networks
  *     tags: [Business Token Management]
  *     security:
@@ -1931,12 +1467,6 @@ router.delete('/tokens/clear', requireActivatedAccount, businessTokenController.
  *                   type: array
  *                   items:
  *                     type: string
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Business not found
  *         content:
@@ -1950,13 +1480,13 @@ router.delete('/tokens/clear', requireActivatedAccount, businessTokenController.
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.put('/tokens/wallets', requireActivatedAccount, businessTokenController.setPaymentWallets);
+router.put('/tokens/wallets', businessTokenController.setPaymentWallets);
 
 /**
  * @swagger
  * /api/v1/business/tokens/bank-account:
  *   put:
- *     summary: Set bank account for fiat payments (requires account activation)
+ *     summary: Set bank account for fiat payments
  *     description: Configure bank account to receive fiat currency fees and payments
  *     tags: [Business Token Management]
  *     security:
@@ -2021,12 +1551,6 @@ router.put('/tokens/wallets', requireActivatedAccount, businessTokenController.s
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Business not found
  *         content:
@@ -2040,13 +1564,13 @@ router.put('/tokens/wallets', requireActivatedAccount, businessTokenController.s
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.put('/tokens/bank-account', requireActivatedAccount, businessTokenController.setBankAccount);
+router.put('/tokens/bank-account', businessTokenController.setBankAccount);
 
 /**
  * @swagger
  * /api/v1/business/tokens/configuration:
  *   get:
- *     summary: Get complete payment configuration (requires account activation)
+ *     summary: Get complete payment configuration
  *     description: Retrieve all token configuration, fees, wallets, and bank account info with summary statistics
  *     tags: [Business Token Management]
  *     security:
@@ -2184,12 +1708,6 @@ router.put('/tokens/bank-account', requireActivatedAccount, businessTokenControl
  *                           type: string
  *                         defaultTokenProtection:
  *                           type: string
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Business not found
  *         content:
@@ -2203,7 +1721,7 @@ router.put('/tokens/bank-account', requireActivatedAccount, businessTokenControl
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.get('/tokens/configuration', requireActivatedAccount, businessTokenController.getPaymentConfiguration);
+router.get('/tokens/configuration', businessTokenController.getPaymentConfiguration);
 
 // ============= QUICK ACCESS ENDPOINTS =============
 
@@ -2211,7 +1729,7 @@ router.get('/tokens/configuration', requireActivatedAccount, businessTokenContro
  * @swagger
  * /api/v1/business/trading-status:
  *   get:
- *     summary: Get business trading readiness status (requires account activation)
+ *     summary: Get business trading readiness status
  *     description: Quick check if business is ready to accept trades (includes default token check)
  *     tags: [Business Token Management]
  *     security:
@@ -2247,6 +1765,17 @@ router.get('/tokens/configuration', requireActivatedAccount, businessTokenContro
  *                     hasDefaultTokens:
  *                       type: boolean
  *                       description: "Whether default tokens are configured"
+ *                     activeTokensCount:
+ *                       type: object
+ *                       properties:
+ *                         base:
+ *                           type: number
+ *                         solana:
+ *                           type: number
+ *                         ethereum:
+ *                           type: number
+ *                         total:
+ *                           type: number
  *                     requirements:
  *                       type: object
  *                       properties:
@@ -2268,12 +1797,6 @@ router.get('/tokens/configuration', requireActivatedAccount, businessTokenContro
  *                           example: "Default tokens (ETH, USDC, USDT, SOL) are automatically available with 0% fees"
  *                         customizable:
  *                           type: string
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Business not found
  *         content:
@@ -2287,7 +1810,7 @@ router.get('/tokens/configuration', requireActivatedAccount, businessTokenContro
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.get('/trading-status', requireActivatedAccount, async (req, res) => {
+router.get('/trading-status', async (req, res) => {
   try {
     const userId = req.user.id;
     const { Business } = require('../models');
@@ -2300,35 +1823,33 @@ router.get('/trading-status', requireActivatedAccount, async (req, res) => {
       });
     }
 
-    // Get basic payment status
-    const hasActiveTokens = business.supportedTokens && 
-      (business.supportedTokens.base?.some(t => t.isActive) ||
-       business.supportedTokens.solana?.some(t => t.isActive) ||
-       business.supportedTokens.ethereum?.some(t => t.isActive));
+    // Ensure business has default tokens
+    const BusinessController = require('../controllers/businessController');
+    await BusinessController.constructor.addDefaultTokensToExistingBusiness(business);
 
-    const hasWallets = !!(business.paymentWallets?.solana || business.paymentWallets?.base || business.paymentWallets?.ethereum);
-    const hasBankAccount = !!(business.bankAccount?.accountNumber);
-
+    const paymentStatus = business.canReceivePayments();
+    const activeTokensCount = business.activeTokensCount;
     const hasDefaultTokens = business.supportedTokens && 
-      (business.supportedTokens.base?.some(t => t.isDefault) ||
-       business.supportedTokens.solana?.some(t => t.isDefault) ||
-       business.supportedTokens.ethereum?.some(t => t.isDefault));
+      (business.supportedTokens.base.some(t => t.isDefault) ||
+       business.supportedTokens.solana.some(t => t.isDefault) ||
+       business.supportedTokens.ethereum.some(t => t.isDefault));
 
     res.json({
       success: true,
       data: {
         businessId: business.businessId,
         businessName: business.businessName,
-        isReadyForTrading: hasActiveTokens && hasWallets && business.status !== 'deleted',
-        canReceiveCrypto: hasWallets && hasActiveTokens,
-        canReceiveFiat: hasBankAccount,
-        hasActiveTokens,
+        isReadyForTrading: paymentStatus.isFullyConfigured && business.isActive(),
+        canReceiveCrypto: paymentStatus.canReceiveCrypto,
+        canReceiveFiat: paymentStatus.canReceiveFiat,
+        hasActiveTokens: paymentStatus.hasActiveTokens,
         hasDefaultTokens,
+        activeTokensCount,
         requirements: {
-          tokensConfigured: hasActiveTokens,
+          tokensConfigured: paymentStatus.hasActiveTokens,
           defaultTokensAvailable: hasDefaultTokens,
-          walletsConfigured: hasWallets,
-          bankAccountConfigured: hasBankAccount,
+          walletsConfigured: paymentStatus.hasWallets,
+          bankAccountConfigured: paymentStatus.hasBankAccount,
           businessVerified: business.status === 'verified'
         },
         defaultTokensInfo: {
@@ -2352,7 +1873,7 @@ router.get('/trading-status', requireActivatedAccount, async (req, res) => {
  * @swagger
  * /api/v1/business/tokens/validate-for-trading:
  *   post:
- *     summary: Check if token is supported for trading (requires account activation)
+ *     summary: Check if token is supported for trading
  *     description: Validate if a specific token can be used as destination token (includes default tokens)
  *     tags: [Business Token Management]
  *     security:
@@ -2419,12 +1940,6 @@ router.get('/trading-status', requireActivatedAccount, async (req, res) => {
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
- *       403:
- *         description: Account not activated by admin
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ActivationRequiredError'
  *       404:
  *         description: Token not supported or business not found
  *         content:
@@ -2438,7 +1953,7 @@ router.get('/trading-status', requireActivatedAccount, async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.post('/tokens/validate-for-trading', requireActivatedAccount, async (req, res) => {
+router.post('/tokens/validate-for-trading', async (req, res) => {
   try {
     const userId = req.user.id;
     const { address, network } = req.body;
@@ -2460,24 +1975,21 @@ router.post('/tokens/validate-for-trading', requireActivatedAccount, async (req,
       });
     }
 
-    // Check if token is supported
-    const networkTokens = business.supportedTokens?.[network.toLowerCase()] || [];
-    const token = networkTokens.find(t => t.contractAddress.toLowerCase() === address.toLowerCase());
-    const isSupported = token && token.isActive && token.isTradingEnabled;
+    // Ensure business has default tokens
+    const BusinessController = require('../controllers/businessController');
+    await BusinessController.constructor.addDefaultTokensToExistingBusiness(business);
 
-    // Get fee configuration
-    const feeConfig = business.feeConfiguration?.[network.toLowerCase()] || [];
-    const feeEntry = feeConfig.find(f => f.contractAddress.toLowerCase() === address.toLowerCase());
-    const feePercentage = feeEntry ? feeEntry.feePercentage : 0;
-
+    const isSupported = business.isTokenSupportedForTrading(address, network);
+    const token = business.getTokenByAddress(address, network);
+    const feePercentage = business.getFeeForToken(address, network);
     const paymentWallet = business.paymentWallets?.[network.toLowerCase()];
 
     res.json({
       success: true,
       data: {
-        isSupported: !!isSupported,
+        isSupported,
         token: isSupported ? {
-          ...token,
+          ...token.toObject(),
           isDefaultToken: token.isDefault
         } : null,
         feePercentage: isSupported ? feePercentage : 0,

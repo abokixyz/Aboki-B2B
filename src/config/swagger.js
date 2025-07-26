@@ -5,9 +5,9 @@ const options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'Complete Authentication, Business Management & Onramp API',
+      title: 'Complete Authentication, Business Management & Onramp API with Admin Panel',
       version: '1.0.0',
-      description: 'A comprehensive API for user authentication, business management, API key generation, token validation, pricing services, offramp operations, and business onramp integration with JWT tokens and secure credential management',
+      description: 'A comprehensive API for user authentication, business management, API key generation, token validation, pricing services, offramp operations, business onramp integration, and admin panel with JWT tokens and secure credential management. Features two-step user approval workflow with admin oversight.',
       contact: {
         name: 'API Support',
         email: 'support@example.com'
@@ -31,7 +31,13 @@ const options = {
           type: 'http',
           scheme: 'bearer',
           bearerFormat: 'JWT',
-          description: 'Enter JWT token in the format: Bearer <token>'
+          description: 'Enter JWT token in the format: Bearer <token> (for user authentication)'
+        },
+        adminBearerAuth: {
+          type: 'http',
+          scheme: 'bearer', 
+          bearerFormat: 'JWT',
+          description: 'Enter admin JWT token in the format: Bearer <token> (for admin authentication)'
         },
         ApiKeyAuth: {
           type: 'apiKey',
@@ -50,6 +56,7 @@ const options = {
   },
   apis: [
     './src/routes/auth.js',                    // Authentication routes
+    './src/routes/admin.js',                   // Admin panel routes (NEW)
     './src/routes/business.js',                // Business management routes  
     './src/routes/businessOnrampRoutes.js',    // Business onramp API routes
     './src/routes/liquidityWebhookRoutes.js',  // Liquidity webhook routes
@@ -72,6 +79,7 @@ try {
   const paths = Object.keys(specs.paths || {});
   const groups = {
     auth: paths.filter(p => p.includes('/auth')).length,
+    admin: paths.filter(p => p.includes('/admin')).length,
     business: paths.filter(p => p.includes('/business')).length,
     businessOnramp: paths.filter(p => p.includes('/business-onramp')).length,
     pricing: paths.filter(p => p.includes('/onramp-price') || p.includes('/offramp-price')).length,
@@ -91,7 +99,7 @@ try {
   specs = {
     openapi: '3.0.0',
     info: {
-      title: 'Complete Authentication, Business Management & Onramp API',
+      title: 'Complete Authentication, Business Management & Onramp API with Admin Panel',
       version: '1.0.0',
       description: 'API documentation generation failed. Check server logs for details.'
     },
@@ -110,6 +118,11 @@ try {
     components: {
       securitySchemes: {
         bearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT'
+        },
+        adminBearerAuth: {
           type: 'http',
           scheme: 'bearer',
           bearerFormat: 'JWT'
@@ -164,8 +177,18 @@ const swaggerSetup = (app) => {
           border-color: #f93e3e;
           background: rgba(249, 62, 62, 0.1);
         }
+        .swagger-ui .opblock-tag-section h4 {
+          color: #3b4151;
+          font-size: 16px;
+          margin: 0 0 5px 0;
+        }
+        .swagger-ui .opblock-tag {
+          border-bottom: 1px solid #e8e8e8;
+          padding: 10px 0;
+          margin: 20px 0;
+        }
       `,
-      customSiteTitle: "Complete Business & Onramp API Documentation",
+      customSiteTitle: "Complete Business & Onramp API with Admin Panel Documentation",
       swaggerOptions: {
         persistAuthorization: true,
         displayRequestDuration: true,
@@ -196,6 +219,7 @@ const swaggerSetup = (app) => {
       const paths = Object.keys(specs.paths || {});
       const endpointGroups = {
         authentication: paths.filter(p => p.includes('/auth')).length,
+        admin: paths.filter(p => p.includes('/admin')).length,
         business: paths.filter(p => p.includes('/business')).length,
         businessOnramp: paths.filter(p => p.includes('/business-onramp')).length,
         pricing: paths.filter(p => p.includes('/onramp-price') || p.includes('/offramp-price')).length,
@@ -212,25 +236,45 @@ const swaggerSetup = (app) => {
         endpointGroups,
         features: [
           'User Authentication',
+          'Admin Panel & User Management',
+          'Account Activation Workflow',
+          'API Access Approval System',
           'Business Management', 
           'Business Onramp API',
           'Token Validation',
           'Pricing Services',
           'Offramp Operations',
           'Liquidity Webhooks',
-          'API Key Management'
+          'API Key Management',
+          'Permission-based Access Control',
+          'Admin Dashboard & Analytics',
+          'System Monitoring & Health Checks'
         ],
         swagger: {
           version: '3.0.0',
           title: specs.info.title,
           specGeneration: 'successful'
-        }
+        },
+        newFeatures: [
+          'Admin Panel Integration',
+          'User Activation Management',
+          'API Access Request System',
+          'Admin Role & Permission System',
+          'Comprehensive Admin Dashboard',
+          'Two-Step User Approval Workflow',
+          'Admin Action Logging & Audit Trail',
+          'User Search & Filtering',
+          'Bulk User Operations',
+          'Real-time System Statistics'
+        ]
       });
     });
 
     console.log(`📚 Swagger docs available at: http://localhost:${process.env.PORT || 5002}/api-docs`);
     console.log(`📄 API JSON available at: http://localhost:${process.env.PORT || 5002}/api-docs.json`);
     console.log(`🔍 Swagger health check: http://localhost:${process.env.PORT || 5002}/api-docs/health`);
+    console.log(`👑 Admin endpoints documented and available`);
+    console.log(`🔐 User activation workflow documented`);
     
   } catch (error) {
     console.error('❌ Error setting up Swagger:', error.message);
@@ -245,6 +289,7 @@ const swaggerSetup = (app) => {
         availableEndpoints: {
           health: '/api/v1/health',
           auth: '/api/v1/auth/*',
+          admin: '/api/v1/admin/*',
           business: '/api/v1/business/*',
           businessOnramp: '/api/v1/business-onramp/*',
           pricing: '/api/v1/onramp-price, /api/v1/offramp-price',
