@@ -14,6 +14,10 @@ const tokenValidationRoutes = require('./tokenValidation');
 const businessOnrampRoutes = require('./businessOnrampRoutes');
 const liquidityWebhookRoutes = require('./liquidityWebhookRoutes');
 
+// Import admin routes
+const adminAuthRoutes = require('./adminAuth');
+const adminRoutes = require('./adminAuth');
+
 // Mount route modules
 router.use('/auth', authRoutes);
 router.use('/business', businessRoutes);
@@ -23,6 +27,10 @@ router.use('/validate', tokenValidationRoutes);
 // Mount new business onramp routes
 router.use('/business-onramp', businessOnrampRoutes);
 router.use('/webhooks/liquidity', liquidityWebhookRoutes);
+
+// Mount admin routes
+router.use('/admin/auth', adminAuthRoutes);
+router.use('/admin', adminRoutes);
 
 // Use the combined pricing routes (contains both onramp-price and offramp-price)
 router.use('/', pricingRoutes); // Mount directly to root since routes already have full paths
@@ -41,7 +49,9 @@ router.get('/health', (req, res) => {
       pricing: 'active',
       offramp: 'active',
       businessOnramp: 'active',
-      liquidityWebhooks: 'active'
+      liquidityWebhooks: 'active',
+      admin: 'active',
+      adminAuth: 'active'
     }
   });
 });
@@ -50,7 +60,7 @@ router.get('/health', (req, res) => {
 router.get('/', (req, res) => {
   res.json({
     success: true,
-    message: 'Complete Authentication, Business Management & Crypto Trading API with Business Onramp',
+    message: 'Complete Authentication, Business Management & Crypto Trading API with Business Onramp and Admin System',
     version: '1.0.0',
     documentation: {
       swagger: '/api-docs',
@@ -65,7 +75,32 @@ router.get('/', (req, res) => {
         resetPassword: 'POST /api/v1/auth/reset-password',
         changePassword: 'POST /api/v1/auth/change-password',
         profile: 'GET /api/v1/auth/profile',
+        verificationStatus: 'GET /api/v1/auth/verification-status',
+        verifyEmail: 'POST /api/v1/auth/verify-email',
         logout: 'POST /api/v1/auth/logout'
+      },
+
+      // Admin Authentication (NEW)
+      adminAuth: {
+        login: 'POST /api/v1/admin/auth/login',
+        profile: 'GET /api/v1/admin/auth/profile',
+        changePassword: 'POST /api/v1/admin/auth/change-password',
+        createAdmin: 'POST /api/v1/admin/auth/create-admin',
+        getAdmins: 'GET /api/v1/admin/auth/admins',
+        toggleAdminStatus: 'PUT /api/v1/admin/auth/admins/{adminId}/toggle-status',
+        logout: 'POST /api/v1/admin/auth/logout'
+      },
+
+      // Admin User Management (NEW)
+      admin: {
+        getPendingUsers: 'GET /api/v1/admin/users/pending-verification',
+        verifyUser: 'POST /api/v1/admin/users/{userId}/verify',
+        toggleApiAccess: 'PUT /api/v1/admin/users/{userId}/api-access',
+        getVerifiedUsers: 'GET /api/v1/admin/users/verified',
+        getUserDetails: 'GET /api/v1/admin/users/{userId}/details',
+        bulkVerifyUsers: 'POST /api/v1/admin/users/bulk-verify',
+        getDashboardStats: 'GET /api/v1/admin/dashboard/stats',
+        getVerificationHistory: 'GET /api/v1/admin/verification-history'
       },
       
       // Business Management (available)
@@ -149,6 +184,11 @@ router.get('/', (req, res) => {
     
     features: [
       'User Authentication with JWT',
+      'Admin User Verification System', // NEW
+      'Admin Dashboard and Management', // NEW
+      'User Account Approval/Rejection', // NEW
+      'API Access Control', // NEW
+      'Verification History Tracking', // NEW
       'Business Registration & Management',
       'Automatic API Key Generation',
       'Secure API Credentials Management', 
@@ -184,6 +224,7 @@ router.get('/', (req, res) => {
     
     authenticationMethods: {
       userAuth: 'JWT Bearer tokens for user operations',
+      adminAuth: 'JWT Bearer tokens for admin operations', // NEW
       businessAuth: 'API Key + Secret for token validation and trading services',
       businessOnrampAuth: 'API Key + Secret for business onramp integration'
     },
@@ -204,6 +245,44 @@ router.get('/', (req, res) => {
       'Food & Beverage', 'Entertainment', 'Transportation', 'Energy',
       'Agriculture', 'Fintech', 'Cryptocurrency', 'Other'
     ],
+
+    // NEW: Admin System Documentation
+    adminSystem: {
+      description: 'Admin system for user verification and management',
+      capabilities: [
+        'User account verification and approval',
+        'API access management',
+        'Bulk user operations',
+        'Dashboard analytics and statistics',
+        'Verification history tracking',
+        'Admin account management',
+        'Role-based permissions (super_admin, admin, moderator)',
+        'Email notifications for account changes',
+        'Audit trail for admin actions'
+      ],
+      userVerificationFlow: [
+        '1. User registers account (pending status)',
+        '2. Admin receives notification email',
+        '3. Admin reviews user information',
+        '4. Admin approves/rejects with reason',
+        '5. User receives notification email',
+        '6. API access enabled for approved users'
+      ],
+      verificationStatuses: ['pending', 'approved', 'rejected', 'suspended'],
+      accountStatuses: ['active', 'suspended', 'deactivated'],
+      adminRoles: {
+        super_admin: 'Full system access including admin management',
+        admin: 'User verification, business management, API key management',
+        moderator: 'User verification and basic analytics only'
+      },
+      security: [
+        'Account lockout after failed attempts',
+        'Shorter JWT token expiry for admins',
+        'IP address logging',
+        'Admin action audit trails',
+        'Role-based permission system'
+      ]
+    },
 
     validation: {
       capabilities: [
@@ -279,7 +358,7 @@ router.get('/', (req, res) => {
       }
     },
 
-    // NEW: Business Onramp API Documentation
+    // Business Onramp API Documentation
     businessOnrampAPI: {
       description: 'API for businesses to integrate onramp services for their customers',
       capabilities: [
@@ -323,6 +402,7 @@ router.get('/', (req, res) => {
       businessRequirements: [
         'Valid business registration',
         'Active API credentials',
+        'Admin-approved user account', // NEW
         'Supported token configuration',
         'Optional: webhook endpoint setup',
         'Optional: payment wallet configuration'
