@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { User, ApiKey, Business } = require('../models'); // Updated to use Business instead of Company
+const { User, ApiKey, Business, Admin } = require('../models'); // Added Admin to imports
 const config = require('../config');
 
 // Simple JWT Authentication Middleware (for basic auth routes)
@@ -76,6 +76,8 @@ const authenticateJWT = async (req, res, next) => {
       isAdmin: user.isAdmin || false,
       isAccountActivated: user.isAccountActivated || false,
       accountStatus: user.accountStatus || 'pending_activation',
+      isApiAccessApproved: user.isApiAccessApproved || false,
+      apiAccessStatus: user.apiAccessStatus || 'pending_approval',
       businessId: business ? business._id : undefined
     };
 
@@ -97,6 +99,211 @@ const authenticateJWT = async (req, res, next) => {
     });
   }
 };
+
+// ==================== ADMIN AUTHENTICATION ====================
+
+// Admin JWT Authentication Middleware
+const authenticateAdmin = async (req, res, next) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '') || req.header('x-auth-token');
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Access denied. No token provided.',
+        code: 'NO_TOKEN'
+      });
+    }
+
+    try {
+      // Verify the token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || config.jwt.secret);
+      
+      // Find the admin
+      const admin = await Admin.findById(decoded.adminId)
+        .select('-password -twoFactorSecret');
+
+      if (!admin) {
+        return res.status(401).json({
+          success: false,
+          message: 'Access denied. Admin not found.',
+          code: 'ADMIN_NOT_FOUND'
+        });
+      }
+
+      // Check if admin is active
+      if (!admin.isActive || admin.status !== 'active') {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. Admin account is not active.',
+          code: 'ADMIN_INACTIVE'
+        });
+      }
+
+      // Check if account is locked
+      if (admin.isLocked) {
+        return res.status(423).json({
+          success: false,
+          message: 'Access denied. Admin account is temporarily locked.',
+          code: 'ADMIN_LOCKED'
+        });
+      }
+
+      // Update last active time
+      admin.lastActiveAt = new Date();
+      await admin.save();
+
+      // Add admin info to request
+      req.admin = {
+        id: admin._id,
+        username: admin.username,
+        email: admin.email,
+        role: admin.role,
+        permissions: admin.permissions,
+        department: admin.department
+      };
+
+      next();
+    } catch (tokenError) {
+      return res.status(401).json({
+        success: false,
+        message: 'Access denied. Invalid token.',
+        code: 'INVALID_TOKEN'
+      });
+    }
+
+  } catch (error) {
+    console.error('Admin authentication error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error during authentication'
+    });
+  }
+};
+
+// Admin permission check middleware
+const checkAdminPermission = (requiredPermission) => {
+  return (req, res, next) => {
+    try {
+      const admin = req.admin;
+
+      if (!admin) {
+        return res.status(401).json({
+          success: false,
+          message: 'Access denied. Admin authentication required.',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      // Super admin has all permissions
+      if (admin.role === 'super_admin') {
+        return next();
+      }
+
+      // Check if admin has the required permission
+      if (!admin.permissions || !admin.permissions.includes(requiredPermission)) {
+        return res.status(403).json({
+          success: false,
+          message: `Access denied. Required permission: ${requiredPermission}`,
+          code: 'INSUFFICIENT_PERMISSIONS',
+          required: requiredPermission,
+          current: admin.permissions || []
+        });
+      }
+
+      next();
+    } catch (error) {
+      console.error('Permission check error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error during permission check'
+      });
+    }
+  };
+};
+
+// Admin role check middleware
+const checkAdminRole = (requiredRoles) => {
+  const roles = Array.isArray(requiredRoles) ? requiredRoles : [requiredRoles];
+
+  return (req, res, next) => {
+    try {
+      const admin = req.admin;
+
+      if (!admin) {
+        return res.status(401).json({
+          success: false,
+          message: 'Access denied. Admin authentication required.',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      // Check if admin has one of the required roles
+      if (!roles.includes(admin.role)) {
+        return res.status(403).json({
+          success: false,
+          message: `Access denied. Required role: ${roles.join(' or ')}`,
+          code: 'INSUFFICIENT_ROLE',
+          required: roles,
+          current: admin.role
+        });
+      }
+
+      next();
+    } catch (error) {
+      console.error('Role check error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error during role check'
+      });
+    }
+  };
+};
+
+// Admin department check middleware
+const checkAdminDepartment = (requiredDepartments) => {
+  const departments = Array.isArray(requiredDepartments) ? requiredDepartments : [requiredDepartments];
+
+  return (req, res, next) => {
+    try {
+      const admin = req.admin;
+
+      if (!admin) {
+        return res.status(401).json({
+          success: false,
+          message: 'Access denied. Admin authentication required.',
+          code: 'AUTH_REQUIRED'
+        });
+      }
+
+      // Super admin can access all departments
+      if (admin.role === 'super_admin') {
+        return next();
+      }
+
+      // Check if admin belongs to one of the required departments
+      if (!departments.includes(admin.department)) {
+        return res.status(403).json({
+          success: false,
+          message: `Access denied. Required department: ${departments.join(' or ')}`,
+          code: 'INSUFFICIENT_DEPARTMENT',
+          required: departments,
+          current: admin.department
+        });
+      }
+
+      next();
+    } catch (error) {
+      console.error('Department check error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error during department check'
+      });
+    }
+  };
+};
+
+// ==================== API KEY AUTHENTICATION ====================
 
 // API Key Authentication Middleware (for business API keys)
 const authenticateApiKey = async (req, res, next) => {
@@ -148,6 +355,15 @@ const authenticateApiKey = async (req, res, next) => {
       });
     }
 
+    // NEW: Check if user has API access approval
+    if (!apiKey.userId.isApiAccessApproved || apiKey.userId.apiAccessStatus !== 'approved') {
+      return res.status(403).json({
+        success: false,
+        error: 'API access not approved by admin. API access denied.',
+        apiAccessStatus: apiKey.userId.apiAccessStatus
+      });
+    }
+
     // Check if user account is locked
     if (apiKey.userId.isAccountLocked && apiKey.userId.isAccountLocked()) {
       return res.status(423).json({
@@ -157,9 +373,9 @@ const authenticateApiKey = async (req, res, next) => {
       });
     }
 
-    // Update last used timestamp
+    // Update last used timestamp and usage stats
     apiKey.lastUsedAt = new Date();
-    await apiKey.save();
+    await apiKey.updateUsageStats(true); // Assuming successful access
 
     req.user = {
       id: apiKey.userId._id,
@@ -167,13 +383,17 @@ const authenticateApiKey = async (req, res, next) => {
       fullName: apiKey.userId.fullName,
       role: apiKey.userId.role || 'user',
       isAccountActivated: apiKey.userId.isAccountActivated,
-      accountStatus: apiKey.userId.accountStatus
+      accountStatus: apiKey.userId.accountStatus,
+      isApiAccessApproved: apiKey.userId.isApiAccessApproved,
+      apiAccessStatus: apiKey.userId.apiAccessStatus
     };
 
     req.apiKey = {
       id: apiKey._id,
       publicKey: apiKey.publicKey,
-      permissions: apiKey.permissions || ['read', 'write']
+      permissions: apiKey.permissions || ['read', 'write'],
+      approvedBy: apiKey.approvedBy,
+      approvedAt: apiKey.approvedAt
     };
 
     if (apiKey.businessId) {
@@ -195,7 +415,9 @@ const authenticateApiKey = async (req, res, next) => {
   }
 };
 
-// Account activation check middleware
+// ==================== USER ACCESS CONTROL MIDDLEWARES ====================
+
+// Account activation check middleware (enhanced)
 const requireActivatedAccount = async (req, res, next) => {
   try {
     if (!req.user) {
@@ -211,6 +433,7 @@ const requireActivatedAccount = async (req, res, next) => {
         success: false,
         message: 'Your account is pending admin activation. Please wait for admin approval before you can access this feature.',
         accountStatus: req.user.accountStatus || 'pending_activation',
+        registeredAt: req.user.createdAt,
         note: 'Contact support if your account has been pending for more than 48 hours'
       });
     }
@@ -224,6 +447,67 @@ const requireActivatedAccount = async (req, res, next) => {
     });
   }
 };
+
+// NEW: API access approval check middleware
+const requireApiAccessApproval = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required'
+      });
+    }
+
+    // Check if account is activated first
+    if (!req.user.isAccountActivated || req.user.accountStatus !== 'active') {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account is pending admin activation.',
+        accountStatus: req.user.accountStatus || 'pending_activation'
+      });
+    }
+
+    // Check if API access is approved
+    if (!req.user.isApiAccessApproved || req.user.apiAccessStatus !== 'approved') {
+      return res.status(403).json({
+        success: false,
+        message: 'Your API access is pending admin approval. You can create a business but cannot access API credentials until approved.',
+        accountStatus: req.user.accountStatus,
+        apiAccessStatus: req.user.apiAccessStatus || 'pending_approval',
+        note: 'Contact support if your API access has been pending for more than 72 hours'
+      });
+    }
+
+    next();
+  } catch (error) {
+    console.error('API access approval check error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Error checking API access approval status'
+    });
+  }
+};
+
+// Combined check for both account activation and API access
+const requireAccountActivationAndApiAccess = async (req, res, next) => {
+  try {
+    // First check account activation
+    await requireActivatedAccount(req, res, (err) => {
+      if (err) return next(err);
+      
+      // Then check API access approval
+      requireApiAccessApproval(req, res, next);
+    });
+  } catch (error) {
+    console.error('Combined access check error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Error checking access permissions'
+    });
+  }
+};
+
+// ==================== EXISTING MIDDLEWARES ====================
 
 // Role-based authorization middleware
 const requireRole = (roles) => {
@@ -249,7 +533,7 @@ const requireRole = (roles) => {
   };
 };
 
-// Admin role check middleware
+// Admin role check middleware (for users, not admin panel)
 const requireAdmin = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({
@@ -373,22 +657,119 @@ const trackLoginAttempt = async (req, res, next) => {
   }
 };
 
+// ==================== UTILITY MIDDLEWARES ====================
+
+// Admin action logging middleware
+const logAdminAction = (action, description) => {
+  return async (req, res, next) => {
+    try {
+      const admin = req.admin;
+      
+      if (admin) {
+        // Create audit log entry
+        const auditLog = {
+          adminId: admin.id,
+          adminUsername: admin.username,
+          action,
+          description,
+          method: req.method,
+          path: req.path,
+          ip: req.ip || req.connection.remoteAddress,
+          userAgent: req.get('User-Agent'),
+          timestamp: new Date(),
+          requestBody: req.method !== 'GET' ? req.body : undefined
+        };
+
+        // Log to console (in production, you might want to use a proper logging service)
+        console.log('Admin Action:', JSON.stringify(auditLog, null, 2));
+
+        // You can also save to database if you have an audit log model
+        // await AuditLog.create(auditLog);
+      }
+
+      next();
+    } catch (error) {
+      console.error('Admin action logging error:', error);
+      // Don't block the request if logging fails
+      next();
+    }
+  };
+};
+
+// Admin rate limiting middleware
+const adminRateLimit = (maxRequests = 100, windowMs = 15 * 60 * 1000) => {
+  const requests = new Map();
+
+  return (req, res, next) => {
+    try {
+      const admin = req.admin;
+      
+      if (!admin) {
+        return next();
+      }
+
+      const key = `admin_${admin.id}`;
+      const now = Date.now();
+      const windowStart = now - windowMs;
+
+      // Get or create request history for this admin
+      if (!requests.has(key)) {
+        requests.set(key, []);
+      }
+
+      const adminRequests = requests.get(key);
+      
+      // Remove old requests outside the window
+      const validRequests = adminRequests.filter(timestamp => timestamp > windowStart);
+      
+      // Check if limit exceeded
+      if (validRequests.length >= maxRequests) {
+        return res.status(429).json({
+          success: false,
+          message: 'Rate limit exceeded. Too many requests from this admin.',
+          code: 'RATE_LIMIT_EXCEEDED',
+          retryAfter: Math.ceil(windowMs / 1000)
+        });
+      }
+
+      // Add current request
+      validRequests.push(now);
+      requests.set(key, validRequests);
+
+      next();
+    } catch (error) {
+      console.error('Admin rate limiting error:', error);
+      next(); // Don't block if rate limiting fails
+    }
+  };
+};
+
 // Export all middleware functions
 module.exports = {
-  // Basic authentication
-  authenticateToken,      // Simple middleware for basic auth routes
-  authenticateJWT,        // Advanced middleware for complex features
-  authenticateApiKey,     // API key authentication
+  // ==================== USER AUTHENTICATION ====================
+  authenticateToken,           // Simple middleware for basic auth routes
+  authenticateJWT,            // Advanced middleware for complex features
+  authenticateApiKey,         // API key authentication
   
-  // Authorization and access control
-  requireRole,            // Role-based access
-  requireAdmin,           // Admin access only
-  requirePermission,      // Permission-based access for API keys
-  requireActivatedAccount, // Account activation check
-  requireBusinessOwnership, // Business ownership verification
+  // ==================== ADMIN AUTHENTICATION ====================
+  authenticateAdmin,          // Admin JWT authentication
+  checkAdminPermission,       // Admin permission checking
+  checkAdminRole,            // Admin role checking
+  checkAdminDepartment,      // Admin department checking
   
-  // Security and rate limiting
-  trackLoginAttempt,      // Track login attempts for rate limiting
+  // ==================== USER ACCESS CONTROL ====================
+  requireActivatedAccount,           // Account activation check
+  requireApiAccessApproval,         // NEW: API access approval check
+  requireAccountActivationAndApiAccess, // NEW: Combined check
+  requireRole,                      // Role-based access
+  requireAdmin,                     // Admin access only (for users)
+  requirePermission,               // Permission-based access for API keys
+  requireBusinessOwnership,        // Business ownership verification
+  
+  // ==================== SECURITY AND UTILITIES ====================
+  trackLoginAttempt,          // Track login attempts for rate limiting
+  logAdminAction,            // Admin action logging
+  adminRateLimit,           // Admin rate limiting
 };
 
 // For backward compatibility, also export the simple one as default
