@@ -5,9 +5,35 @@ const options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'Complete Authentication, Business Management & Onramp API with Admin Panel',
+      title: 'Complete Authentication, Business Management, Admin System & Onramp API',
       version: '1.0.0',
-      description: 'A comprehensive API for user authentication, business management, API key generation, token validation, pricing services, offramp operations, business onramp integration, and admin panel with JWT tokens and secure credential management. Features two-step user approval workflow with admin oversight.',
+      description: `
+        A comprehensive API for user authentication, business management, admin user verification system, 
+        API key generation, token validation, pricing services, offramp operations, and business onramp 
+        integration with JWT tokens and secure credential management.
+
+        ## Features
+        - **User Authentication**: JWT-based authentication with email verification
+        - **Admin System**: User verification, approval/rejection, and API access management
+        - **Business Management**: Business registration, token configuration, API key generation
+        - **Token Validation**: Multi-chain token validation and metadata retrieval
+        - **Pricing Services**: Real-time crypto-to-fiat pricing
+        - **Offramp Services**: Crypto-to-fiat withdrawal services
+        - **Business Onramp**: Integrated onramp services for businesses
+        - **Liquidity Integration**: Settlement and liquidity management
+
+        ## Admin Verification Flow
+        1. User registers account (pending verification)
+        2. Admin receives notification and reviews user
+        3. Admin approves/rejects with reason
+        4. User receives notification email
+        5. API access enabled for approved users only
+
+        ## Authentication Types
+        - **User Auth**: JWT Bearer tokens for user operations
+        - **Admin Auth**: JWT Bearer tokens for admin operations
+        - **Business Auth**: API Key + Secret for business operations
+      `,
       contact: {
         name: 'API Support',
         email: 'support@example.com'
@@ -31,32 +57,221 @@ const options = {
           type: 'http',
           scheme: 'bearer',
           bearerFormat: 'JWT',
-          description: 'Enter JWT token in the format: Bearer <token> (for user authentication)'
+          description: 'Enter JWT token in the format: Bearer <token>. Used for user authentication.'
         },
-        adminBearerAuth: {
+        adminAuth: {
           type: 'http',
-          scheme: 'bearer', 
+          scheme: 'bearer',
           bearerFormat: 'JWT',
-          description: 'Enter admin JWT token in the format: Bearer <token> (for admin authentication)'
+          description: 'Enter admin JWT token in the format: Bearer <token>. Used for admin operations.'
         },
         ApiKeyAuth: {
           type: 'apiKey',
           in: 'header',
           name: 'X-API-Key',
-          description: 'Public API key for business authentication'
+          description: 'Public API key for business authentication. Format: pk_live_...'
         },
         SecretKeyAuth: {
           type: 'apiKey',
           in: 'header', 
           name: 'X-Secret-Key',
-          description: 'Secret key for business authentication'
+          description: 'Secret key for business authentication. Format: ***REMOVED***...'
+        }
+      },
+      schemas: {
+        Error: {
+          type: 'object',
+          properties: {
+            success: {
+              type: 'boolean',
+              example: false
+            },
+            message: {
+              type: 'string',
+              example: 'Error message'
+            },
+            error: {
+              type: 'string',
+              example: 'Detailed error information'
+            }
+          }
+        },
+        Success: {
+          type: 'object',
+          properties: {
+            success: {
+              type: 'boolean',
+              example: true
+            },
+            message: {
+              type: 'string',
+              example: 'Operation successful'
+            },
+            data: {
+              type: 'object',
+              description: 'Response data'
+            }
+          }
+        },
+        Pagination: {
+          type: 'object',
+          properties: {
+            currentPage: {
+              type: 'integer',
+              example: 1
+            },
+            totalPages: {
+              type: 'integer',
+              example: 10
+            },
+            totalItems: {
+              type: 'integer',
+              example: 100
+            },
+            hasNext: {
+              type: 'boolean',
+              example: true
+            },
+            hasPrev: {
+              type: 'boolean',
+              example: false
+            },
+            limit: {
+              type: 'integer',
+              example: 20
+            }
+          }
+        }
+      },
+      responses: {
+        UnauthorizedError: {
+          description: 'Authentication information is missing or invalid',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/Error'
+              },
+              example: {
+                success: false,
+                message: 'Authentication required'
+              }
+            }
+          }
+        },
+        ForbiddenError: {
+          description: 'Insufficient permissions',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/Error'
+              },
+              example: {
+                success: false,
+                message: 'Insufficient permissions'
+              }
+            }
+          }
+        },
+        NotFoundError: {
+          description: 'Resource not found',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/Error'
+              },
+              example: {
+                success: false,
+                message: 'Resource not found'
+              }
+            }
+          }
+        },
+        ValidationError: {
+          description: 'Validation error',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/Error'
+              },
+              example: {
+                success: false,
+                message: 'Validation failed',
+                error: 'Invalid input data'
+              }
+            }
+          }
+        },
+        InternalServerError: {
+          description: 'Internal server error',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/Error'
+              },
+              example: {
+                success: false,
+                message: 'Internal server error'
+              }
+            }
+          }
         }
       }
-    }
+    },
+    tags: [
+      {
+        name: 'Authentication',
+        description: 'User authentication endpoints'
+      },
+      {
+        name: 'Admin Authentication',
+        description: 'Admin authentication and account management'
+      },
+      {
+        name: 'Admin - User Verification',
+        description: 'Admin endpoints for managing user verification and API access'
+      },
+      {
+        name: 'Admin - Management',
+        description: 'Admin system management endpoints'
+      },
+      {
+        name: 'Business Management',
+        description: 'Business registration, management, and API key generation'
+      },
+      {
+        name: 'Business Token Management',
+        description: 'Manage supported destination tokens, fees, and payment configuration'
+      },
+      {
+        name: 'Business Onramp',
+        description: 'Business onramp integration API for customer order management'
+      },
+      {
+        name: 'Token Validation',
+        description: 'Multi-chain token validation and metadata retrieval'
+      },
+      {
+        name: 'Pricing',
+        description: 'Real-time crypto-to-fiat pricing services'
+      },
+      {
+        name: 'Offramp',
+        description: 'Crypto-to-fiat withdrawal services'
+      },
+      {
+        name: 'Liquidity Webhooks',
+        description: 'Internal liquidity server integration webhooks'
+      },
+      {
+        name: 'Token Management',
+        description: 'User token selection and management'
+      }
+    ]
   },
   apis: [
     './src/routes/auth.js',                    // Authentication routes
-    './src/routes/admin.js',                   // Admin panel routes (NEW)
+    './src/routes/adminAuth.js',               // Admin authentication routes
+    './src/routes/admin.js',                   // Admin management routes
     './src/routes/business.js',                // Business management routes  
     './src/routes/businessOnrampRoutes.js',    // Business onramp API routes
     './src/routes/liquidityWebhookRoutes.js',  // Liquidity webhook routes
@@ -78,9 +293,10 @@ try {
   // Log the endpoint groups found
   const paths = Object.keys(specs.paths || {});
   const groups = {
-    auth: paths.filter(p => p.includes('/auth')).length,
-    admin: paths.filter(p => p.includes('/admin')).length,
-    business: paths.filter(p => p.includes('/business')).length,
+    auth: paths.filter(p => p.includes('/auth') && !p.includes('/admin')).length,
+    adminAuth: paths.filter(p => p.includes('/admin/auth')).length,
+    admin: paths.filter(p => p.includes('/admin') && !p.includes('/admin/auth')).length,
+    business: paths.filter(p => p.includes('/business') && !p.includes('/business-onramp')).length,
     businessOnramp: paths.filter(p => p.includes('/business-onramp')).length,
     pricing: paths.filter(p => p.includes('/onramp-price') || p.includes('/offramp-price')).length,
     offramp: paths.filter(p => p.includes('/offramp')).length,
@@ -99,7 +315,7 @@ try {
   specs = {
     openapi: '3.0.0',
     info: {
-      title: 'Complete Authentication, Business Management & Onramp API with Admin Panel',
+      title: 'Complete Authentication, Business Management, Admin System & Onramp API',
       version: '1.0.0',
       description: 'API documentation generation failed. Check server logs for details.'
     },
@@ -122,7 +338,7 @@ try {
           scheme: 'bearer',
           bearerFormat: 'JWT'
         },
-        adminBearerAuth: {
+        adminAuth: {
           type: 'http',
           scheme: 'bearer',
           bearerFormat: 'JWT'
@@ -177,18 +393,53 @@ const swaggerSetup = (app) => {
           border-color: #f93e3e;
           background: rgba(249, 62, 62, 0.1);
         }
-        .swagger-ui .opblock-tag-section h4 {
+        .swagger-ui .auth-container {
+          border: 2px solid #e8e8e8;
+          border-radius: 8px;
+          padding: 15px;
+          margin: 20px 0;
+        }
+        .swagger-ui .info .title {
           color: #3b4151;
-          font-size: 16px;
-          margin: 0 0 5px 0;
+          font-size: 2.5em;
+        }
+        .swagger-ui .info .description {
+          color: #3b4151;
+          margin: 20px 0;
         }
         .swagger-ui .opblock-tag {
           border-bottom: 1px solid #e8e8e8;
-          padding: 10px 0;
-          margin: 20px 0;
+          margin-bottom: 10px;
+        }
+        .swagger-ui .opblock-summary-description {
+          color: #3b4151;
+        }
+        .swagger-ui .btn.authorize {
+          background-color: #4990e2;
+          border-color: #4990e2;
+        }
+        .swagger-ui .btn.authorize:hover {
+          background-color: #357abd;
+          border-color: #357abd;
+        }
+        /* Admin section styling */
+        .swagger-ui .opblock-tag[data-tag*="Admin"] {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+        }
+        .swagger-ui .opblock-tag[data-tag*="Admin"] .opblock-tag-name {
+          color: white;
+        }
+        /* Business section styling */
+        .swagger-ui .opblock-tag[data-tag*="Business"] {
+          background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+          color: white;
+        }
+        .swagger-ui .opblock-tag[data-tag*="Business"] .opblock-tag-name {
+          color: white;
         }
       `,
-      customSiteTitle: "Complete Business & Onramp API with Admin Panel Documentation",
+      customSiteTitle: "Complete Business, Admin & Onramp API Documentation",
       swaggerOptions: {
         persistAuthorization: true,
         displayRequestDuration: true,
@@ -199,11 +450,28 @@ const swaggerSetup = (app) => {
         tryItOutEnabled: true,
         supportedSubmitMethods: ['get', 'post', 'put', 'delete', 'patch'],
         validatorUrl: null,
-        tagsSorter: 'alpha',
+        tagsSorter: (a, b) => {
+          // Custom tag ordering: Auth, Admin, Business, then others
+          const order = [
+            'Authentication',
+            'Admin Authentication', 
+            'Admin - User Verification',
+            'Admin - Management',
+            'Business Management',
+            'Business Token Management',
+            'Business Onramp',
+            'Token Management',
+            'Token Validation',
+            'Pricing',
+            'Offramp',
+            'Liquidity Webhooks'
+          ];
+          return order.indexOf(a) - order.indexOf(b);
+        },
         operationsSorter: 'alpha'
       },
       customJs: [
-        // Add custom JavaScript if needed
+        // Add custom JavaScript if needed for admin section highlighting
       ]
     }));
 
@@ -218,9 +486,10 @@ const swaggerSetup = (app) => {
     app.get('/api-docs/health', (req, res) => {
       const paths = Object.keys(specs.paths || {});
       const endpointGroups = {
-        authentication: paths.filter(p => p.includes('/auth')).length,
-        admin: paths.filter(p => p.includes('/admin')).length,
-        business: paths.filter(p => p.includes('/business')).length,
+        authentication: paths.filter(p => p.includes('/auth') && !p.includes('/admin')).length,
+        adminAuthentication: paths.filter(p => p.includes('/admin/auth')).length,
+        adminManagement: paths.filter(p => p.includes('/admin') && !p.includes('/admin/auth')).length,
+        business: paths.filter(p => p.includes('/business') && !p.includes('/business-onramp')).length,
         businessOnramp: paths.filter(p => p.includes('/business-onramp')).length,
         pricing: paths.filter(p => p.includes('/onramp-price') || p.includes('/offramp-price')).length,
         offramp: paths.filter(p => p.includes('/offramp')).length,
@@ -236,36 +505,82 @@ const swaggerSetup = (app) => {
         endpointGroups,
         features: [
           'User Authentication',
-          'Admin Panel & User Management',
-          'Account Activation Workflow',
-          'API Access Approval System',
+          'Admin User Verification System', // NEW
+          'Admin Dashboard and Management', // NEW
+          'User Account Approval/Rejection', // NEW
+          'API Access Control', // NEW
+          'Verification History Tracking', // NEW
           'Business Management', 
           'Business Onramp API',
           'Token Validation',
           'Pricing Services',
           'Offramp Operations',
           'Liquidity Webhooks',
-          'API Key Management',
-          'Permission-based Access Control',
-          'Admin Dashboard & Analytics',
-          'System Monitoring & Health Checks'
+          'API Key Management'
         ],
+        newFeatures: {
+          adminSystem: {
+            description: 'Complete admin system for user verification',
+            endpoints: endpointGroups.adminAuthentication + endpointGroups.adminManagement,
+            capabilities: [
+              'User verification and approval',
+              'API access management',
+              'Admin dashboard with statistics',
+              'Bulk user operations',
+              'Verification history tracking',
+              'Role-based admin permissions'
+            ]
+          }
+        },
         swagger: {
           version: '3.0.0',
           title: specs.info.title,
           specGeneration: 'successful'
+        }
+      });
+    });
+
+    // Admin-specific documentation endpoint
+    app.get('/api-docs/admin', (req, res) => {
+      const adminPaths = Object.keys(specs.paths || {}).filter(p => p.includes('/admin'));
+      const adminEndpoints = adminPaths.map(path => ({
+        path,
+        methods: Object.keys(specs.paths[path] || {})
+      }));
+
+      res.json({
+        success: true,
+        message: 'Admin API documentation',
+        totalAdminEndpoints: adminPaths.length,
+        endpoints: adminEndpoints,
+        adminSystem: {
+          authentication: {
+            description: 'JWT-based admin authentication',
+            roles: ['super_admin', 'admin', 'moderator'],
+            tokenExpiry: '8 hours (shorter than user tokens)'
+          },
+          userVerification: {
+            description: 'Admin verification of user accounts',
+            flow: [
+              '1. User registers (pending status)',
+              '2. Admin receives notification',
+              '3. Admin reviews and approves/rejects',
+              '4. User receives notification',
+              '5. API access enabled for approved users'
+            ],
+            actions: ['approve', 'reject', 'suspend', 'enable_api', 'disable_api']
+          },
+          permissions: {
+            super_admin: 'Full system access including admin management',
+            admin: 'User verification, business management, API operations',
+            moderator: 'User verification and basic analytics only'
+          }
         },
-        newFeatures: [
-          'Admin Panel Integration',
-          'User Activation Management',
-          'API Access Request System',
-          'Admin Role & Permission System',
-          'Comprehensive Admin Dashboard',
-          'Two-Step User Approval Workflow',
-          'Admin Action Logging & Audit Trail',
-          'User Search & Filtering',
-          'Bulk User Operations',
-          'Real-time System Statistics'
+        security: [
+          'Account lockout after failed attempts',
+          'Admin action audit trails',
+          'Role-based permissions',
+          'IP address logging'
         ]
       });
     });
@@ -273,8 +588,7 @@ const swaggerSetup = (app) => {
     console.log(`📚 Swagger docs available at: http://localhost:${process.env.PORT || 5002}/api-docs`);
     console.log(`📄 API JSON available at: http://localhost:${process.env.PORT || 5002}/api-docs.json`);
     console.log(`🔍 Swagger health check: http://localhost:${process.env.PORT || 5002}/api-docs/health`);
-    console.log(`👑 Admin endpoints documented and available`);
-    console.log(`🔐 User activation workflow documented`);
+    console.log(`👨‍💼 Admin docs: http://localhost:${process.env.PORT || 5002}/api-docs/admin`);
     
   } catch (error) {
     console.error('❌ Error setting up Swagger:', error.message);
@@ -289,7 +603,8 @@ const swaggerSetup = (app) => {
         availableEndpoints: {
           health: '/api/v1/health',
           auth: '/api/v1/auth/*',
-          admin: '/api/v1/admin/*',
+          adminAuth: '/api/v1/admin/auth/*', // NEW
+          admin: '/api/v1/admin/*', // NEW
           business: '/api/v1/business/*',
           businessOnramp: '/api/v1/business-onramp/*',
           pricing: '/api/v1/onramp-price, /api/v1/offramp-price',
@@ -312,6 +627,14 @@ const swaggerSetup = (app) => {
       res.status(500).json({
         success: false,
         message: 'Swagger documentation failed to initialize',
+        error: error.message
+      });
+    });
+
+    app.get('/api-docs/admin', (req, res) => {
+      res.status(500).json({
+        success: false,
+        message: 'Admin documentation failed to load',
         error: error.message
       });
     });

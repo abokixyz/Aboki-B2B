@@ -1,12 +1,14 @@
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { User } = require('../models');
+const EmailService = require('../services/EmailService'); // Import the email service
 
 class AuthController {
-  // Enhanced signup with admin approval requirement
+  // User registration with admin verification
   async signup(req, res) {
     try {
-      const { email, password, fullName, phone, username } = req.body;
+      const { email, password, fullName, phone } = req.body;
 
       // Validation
       if (!email || !password || !fullName) {
@@ -16,6 +18,16 @@ class AuthController {
         });
       }
 
+      // Email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid email format'
+        });
+      }
+
+      // Password validation
       if (password.length < 6) {
         return res.status(400).json({
           success: false,
@@ -24,85 +36,104 @@ class AuthController {
       }
 
       // Check if user already exists
-      const existingUser = await User.findOne({ 
-        $or: [
-          { email: email.toLowerCase() },
-          ...(username ? [{ username: username.toLowerCase() }] : [])
-        ]
-      });
-
+      const existingUser = await User.findOne({ email: email.toLowerCase() });
       if (existingUser) {
         return res.status(409).json({
           success: false,
-          message: existingUser.email === email.toLowerCase() 
-            ? 'User with this email already exists'
-            : 'Username already taken'
+          message: 'User with this email already exists'
         });
       }
 
-      // Parse full name
-      const nameParts = fullName.trim().split(' ');
-      const firstName = nameParts[0];
-      const lastName = nameParts.slice(1).join(' ') || '';
+      // Hash password
+      const saltRounds = parseInt(process.env.BCRYPT_ROUNDS) || 12;
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-      // Create user with pending activation status
-      const user = new User({
+      // Generate email verification token
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+      const verificationTokenExpiry = new Date(Date.now() + 24 * 3600000); // 24 hours
+
+      // Create user with admin verification fields
+      const newUser = new User({
         email: email.toLowerCase(),
-        password, // Will be hashed by pre-save middleware
-        username: username?.toLowerCase() || email.split('@')[0],
-        firstName,
-        lastName,
-        phoneNumber: phone,
-        // Account starts as pending activation
-        isAccountActivated: false,
-        accountStatus: 'pending_activation',
-        // API access starts as pending approval
-        isApiAccessApproved: false,
-        apiAccessStatus: 'pending_approval'
+        password: hashedPassword,
+        fullName,
+        phone,
+        isVerified: false,
+        emailVerificationToken: verificationToken,
+        emailVerificationExpiry: verificationTokenExpiry,
+        
+        // Admin verification fields
+        verificationStatus: 'pending',
+        isApiEnabled: false,
+        accountStatus: 'active',
+        
+        createdAt: new Date(),
+        updatedAt: new Date()
       });
 
-      await user.save();
+      await newUser.save();
+
+      // Send welcome email with verification
+      try {
+        await EmailService.sendWelcomeEmail(fullName, email.toLowerCase(), verificationToken);
+        console.log(`✅ Welcome email sent to ${email}`);
+      } catch (emailError) {
+        console.error('❌ Failed to send welcome email:', emailError);
+        // Don't fail registration if email fails
+      }
+
+      // Send notification to admin about new user registration
+      try {
+        const adminEmail = process.env.ADMIN_EMAIL || process.env.ADMIN_NOTIFICATION_EMAIL;
+        if (adminEmail) {
+          await EmailService.sendNewUserNotificationToAdmin(adminEmail, {
+            fullName: newUser.fullName,
+            email: newUser.email,
+            phone: newUser.phone,
+            createdAt: newUser.createdAt,
+            isVerified: newUser.isVerified
+          });
+          console.log(`✅ Admin notification sent for new user: ${email}`);
+        }
+      } catch (emailError) {
+        console.error('❌ Failed to send admin notification email:', emailError);
+        // Don't fail registration if admin notification fails
+      }
 
       // Generate JWT token
       const token = jwt.sign(
-        { userId: user._id },
+        { 
+          id: newUser._id, 
+          email: newUser.email,
+          fullName: newUser.fullName
+        },
         process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+        { expiresIn: process.env.JWT_EXPIRE || '7d' }
       );
 
-      // Update login tracking
-      await user.updateLoginTracking();
-
-      // Prepare response (exclude sensitive fields)
+      // Remove password from response
       const userResponse = {
-        id: user._id,
-        email: user.email,
-        username: user.username,
-        fullName: user.fullName,
-        phone: user.phoneNumber,
-        isVerified: user.isEmailVerified,
-        isAccountActivated: user.isAccountActivated,
-        accountStatus: user.accountStatus,
-        isApiAccessApproved: user.isApiAccessApproved,
-        apiAccessStatus: user.apiAccessStatus,
-        createdAt: user.createdAt,
-        lastLogin: user.lastLoginAt
+        id: newUser._id,
+        email: newUser.email,
+        fullName: newUser.fullName,
+        phone: newUser.phone,
+        isVerified: newUser.isVerified,
+        verificationStatus: newUser.verificationStatus,
+        isApiEnabled: newUser.isApiEnabled,
+        createdAt: newUser.createdAt
       };
 
       res.status(201).json({
         success: true,
-        message: 'Account created successfully. Admin activation required before you can create businesses.',
+        message: 'User registered successfully. Please check your email to verify your account. Admin verification is required for API access.',
         data: {
           user: userResponse,
-          token,
-          activationInfo: {
-            accountActivated: false,
-            apiAccessApproved: false,
-            canCreateBusiness: false,
-            canAccessApiCredentials: false,
-            nextSteps: 'Wait for admin to activate your account. You will be notified via email when approved.'
-          },
-          activationRequired: true
+          token
+        },
+        notice: {
+          emailVerification: 'Please verify your email address',
+          adminVerification: 'Your account requires admin verification for API access',
+          expectedWaitTime: '1-2 business days'
         }
       });
 
@@ -116,7 +147,7 @@ class AuthController {
     }
   }
 
-  // Enhanced login with activation status
+  // User login with verification status
   async login(req, res) {
     try {
       const { email, password } = req.body;
@@ -130,84 +161,93 @@ class AuthController {
       }
 
       // Find user
-      const user = await User.findOne({ 
-        $or: [
-          { email: email.toLowerCase() },
-          { username: email.toLowerCase() }
-        ]
-      });
-
+      const user = await User.findOne({ email: email.toLowerCase() });
       if (!user) {
         return res.status(401).json({
           success: false,
-          message: 'Invalid credentials'
+          message: 'Invalid email or password'
         });
       }
 
       // Check password
-      const isValidPassword = await user.comparePassword(password);
-      
-      if (!isValidPassword) {
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (!isPasswordValid) {
         return res.status(401).json({
           success: false,
-          message: 'Invalid credentials'
+          message: 'Invalid email or password'
         });
       }
 
-      // Generate JWT token
-      const token = jwt.sign(
-        { userId: user._id },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      // Check account status
+      if (user.accountStatus === 'suspended') {
+        return res.status(403).json({
+          success: false,
+          message: 'Your account has been suspended. Please contact support.',
+          suspensionReason: user.suspensionReason,
+          contactSupport: process.env.SUPPORT_EMAIL || 'support@company.com'
+        });
+      }
+
+      if (user.accountStatus === 'deactivated') {
+        return res.status(403).json({
+          success: false,
+          message: 'Your account has been deactivated. Please contact support.',
+          contactSupport: process.env.SUPPORT_EMAIL || 'support@company.com'
+        });
+      }
+
+      // Update last login
+      await User.updateOne(
+        { _id: user._id },
+        { 
+          lastLogin: new Date(),
+          updatedAt: new Date() 
+        }
       );
 
-      // Update login tracking
-      await user.updateLoginTracking();
+      // Generate JWT token
+      const token = jwt.sign(
+        { 
+          id: user._id, 
+          email: user.email,
+          fullName: user.fullName
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: process.env.JWT_EXPIRE || '7d' }
+      );
 
-      // Prepare response with activation status
+      // Remove password from response
       const userResponse = {
         id: user._id,
         email: user.email,
-        username: user.username,
         fullName: user.fullName,
-        phone: user.phoneNumber,
-        isVerified: user.isEmailVerified,
-        isAccountActivated: user.isAccountActivated,
-        accountStatus: user.accountStatus,
-        isApiAccessApproved: user.isApiAccessApproved,
-        apiAccessStatus: user.apiAccessStatus,
-        createdAt: user.createdAt,
-        lastLogin: user.lastLoginAt
+        phone: user.phone,
+        isVerified: user.isVerified,
+        verificationStatus: user.verificationStatus || 'pending',
+        isApiEnabled: user.isApiEnabled || false,
+        accountStatus: user.accountStatus || 'active',
+        lastLogin: new Date(),
+        createdAt: user.createdAt
       };
 
-      // Determine what user can do
-      const canCreateBusiness = user.canCreateBusiness();
-      const canAccessApi = user.canAccessApi();
+      // Prepare verification status information
+      const verificationInfo = this.getVerificationInfo(user);
 
-      let nextSteps = '';
-      if (!user.isAccountActivated) {
-        nextSteps = 'Wait for admin to activate your account before creating businesses';
-      } else if (!user.isApiAccessApproved) {
-        nextSteps = 'You can create businesses. Request API access for credentials.';
-      } else {
-        nextSteps = 'You have full access - create businesses and use API credentials';
-      }
-
-      res.json({
+      const response = {
         success: true,
         message: 'Login successful',
         data: {
           user: userResponse,
-          token,
-          activationInfo: {
-            accountActivated: user.isAccountActivated,
-            apiAccessApproved: user.isApiAccessApproved,
-            canCreateBusiness,
-            canAccessApiCredentials: canAccessApi,
-            nextSteps
-          }
+          token
         }
-      });
+      };
+
+      // Add verification info if user needs attention
+      if (verificationInfo.requiresAttention) {
+        response.verification = verificationInfo;
+      }
+
+      res.json(response);
 
     } catch (error) {
       console.error('Login error:', error);
@@ -219,161 +259,212 @@ class AuthController {
     }
   }
 
-  // Get detailed activation status
-  async getActivationStatus(req, res) {
+  // Request password reset
+  async forgotPassword(req, res) {
     try {
-      const userId = req.user.id;
-      
-      const user = await User.findById(userId).select(
-        'email username firstName lastName isAccountActivated accountStatus activatedAt activatedBy ' +
-        'isApiAccessApproved apiAccessStatus apiAccessApprovedAt apiAccessApprovedBy apiAccessRequestedAt ' +
-        'apiAccessRejectedAt apiAccessRevokedAt createdAt'
-      );
-      
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'User not found'
-        });
-      }
+      const { email } = req.body;
 
-      // Helper function to get next steps message
-      const getNextStepsMessage = (user) => {
-        if (!user.isAccountActivated) {
-          return 'Wait for admin to activate your account, then you can create businesses';
-        } else if (!user.isApiAccessApproved) {
-          return 'You can create businesses, but contact support for API access approval to get API credentials';
-        } else {
-          return 'You have full access - create businesses and access API credentials';
-        }
-      };
-
-      res.json({
-        success: true,
-        data: {
-          userId: user._id,
-          email: user.email,
-          username: user.username,
-          accountActivation: {
-            isAccountActivated: user.isAccountActivated || false,
-            accountStatus: user.accountStatus || 'pending_activation',
-            activatedAt: user.activatedAt,
-            activatedBy: user.activatedBy,
-            message: user.isAccountActivated 
-              ? 'Your account is activated'
-              : 'Your account is pending admin activation'
-          },
-          apiAccess: {
-            isApiAccessApproved: user.isApiAccessApproved || false,
-            apiAccessStatus: user.apiAccessStatus || 'pending_approval',
-            apiAccessApprovedAt: user.apiAccessApprovedAt,
-            apiAccessApprovedBy: user.apiAccessApprovedBy,
-            apiAccessRequestedAt: user.apiAccessRequestedAt,
-            apiAccessRejectedAt: user.apiAccessRejectedAt,
-            apiAccessRevokedAt: user.apiAccessRevokedAt,
-            message: user.isApiAccessApproved 
-              ? 'Your API access is approved - you can access API credentials'
-              : 'Your API access is pending admin approval'
-          },
-          registeredAt: user.createdAt,
-          overallStatus: {
-            canCreateBusiness: user.canCreateBusiness(),
-            canAccessApiCredentials: user.canAccessApi(),
-            nextSteps: getNextStepsMessage(user)
-          }
-        }
-      });
-
-    } catch (error) {
-      console.error('Get activation status error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error checking activation status'
-      });
-    }
-  }
-
-  // Request API access from admin
-  async requestApiAccess(req, res) {
-    try {
-      const userId = req.user.id;
-      const { reason, businessUseCase } = req.body;
-
-      const user = await User.findById(userId).select(
-        'isAccountActivated accountStatus isApiAccessApproved apiAccessStatus email username'
-      );
-      
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'User not found'
-        });
-      }
-
-      // Check if account is activated first
-      if (!user.isAccountActivated || user.accountStatus !== 'active') {
-        return res.status(403).json({
-          success: false,
-          message: 'Your account must be activated before requesting API access'
-        });
-      }
-
-      // Check if already approved
-      if (user.isApiAccessApproved && user.apiAccessStatus === 'approved') {
+      // Validation
+      if (!email) {
         return res.status(400).json({
           success: false,
-          message: 'Your API access is already approved'
+          message: 'Email is required'
         });
       }
 
-      // Check if request is already pending
-      if (user.apiAccessStatus === 'pending_approval') {
-        return res.status(400).json({
-          success: false,
-          message: 'Your API access request is already pending admin review'
+      // Find user
+      const user = await User.findOne({ email: email.toLowerCase() });
+      if (!user) {
+        // Return success even if user doesn't exist (security best practice)
+        return res.json({
+          success: true,
+          message: 'If an account with that email exists, a password reset link has been sent'
         });
       }
 
-      // Update user with API access request
-      user.apiAccessStatus = 'pending_approval';
-      user.apiAccessRequestedAt = new Date();
-      user.apiAccessReason = reason?.trim();
-      user.businessUseCase = businessUseCase?.trim();
+      // Generate reset token
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const resetTokenExpiry = new Date(Date.now() + 600000); // 10 minutes from now (security improvement)
+
+      // Save reset token to user
+      user.resetPasswordToken = resetToken;
+      user.resetPasswordExpiry = resetTokenExpiry;
       user.updatedAt = new Date();
-      
       await user.save();
 
-      // TODO: Send notification to admin about API access request
-      // This could be email, admin dashboard notification, etc.
-      
+      // Send password reset email
+      try {
+        await EmailService.sendPasswordResetEmail(user.fullName, user.email, resetToken);
+        console.log(`✅ Password reset email sent to ${user.email}`);
+      } catch (emailError) {
+        console.error('❌ Failed to send password reset email:', emailError);
+        // Still return success for security reasons
+      }
+
       res.json({
         success: true,
-        message: 'API access request submitted successfully',
-        data: {
-          apiAccessStatus: 'pending_approval',
-          requestedAt: user.apiAccessRequestedAt,
-          reason: user.apiAccessReason,
-          businessUseCase: user.businessUseCase,
-          note: 'Admin will review your request. You will be notified of the decision.'
-        }
+        message: 'If an account with that email exists, a password reset link has been sent',
+        // Include token in development mode only
+        ...(process.env.NODE_ENV === 'development' && { resetToken })
       });
 
     } catch (error) {
-      console.error('Request API access error:', error);
+      console.error('Forgot password error:', error);
       res.status(500).json({
         success: false,
-        message: 'Error submitting API access request'
+        message: 'Internal server error during password reset request',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
 
-  // Enhanced profile with activation info
+  // Reset password with token
+  async resetPassword(req, res) {
+    try {
+      const { token, newPassword } = req.body;
+
+      // Validation
+      if (!token || !newPassword) {
+        return res.status(400).json({
+          success: false,
+          message: 'Reset token and new password are required'
+        });
+      }
+
+      // Password validation
+      if (newPassword.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: 'Password must be at least 6 characters long'
+        });
+      }
+
+      // Find user with valid reset token
+      const user = await User.findOne({
+        resetPasswordToken: token,
+        resetPasswordExpiry: { $gt: new Date() }
+      });
+
+      if (!user) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid or expired reset token'
+        });
+      }
+
+      // Hash new password
+      const saltRounds = parseInt(process.env.BCRYPT_ROUNDS) || 12;
+      const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+
+      // Update user password and clear reset token
+      user.password = hashedPassword;
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpiry = undefined;
+      user.updatedAt = new Date();
+      await user.save();
+
+      // Send password reset confirmation email
+      try {
+        await EmailService.sendPasswordResetConfirmation(user.fullName, user.email);
+        console.log(`✅ Password reset confirmation email sent to ${user.email}`);
+      } catch (emailError) {
+        console.error('❌ Failed to send password reset confirmation email:', emailError);
+        // Don't fail the password reset if email fails
+      }
+
+      res.json({
+        success: true,
+        message: 'Password reset successfully'
+      });
+
+    } catch (error) {
+      console.error('Reset password error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error during password reset',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  // Change password for authenticated user
+  async changePassword(req, res) {
+    try {
+      const { currentPassword, newPassword } = req.body;
+      const userId = req.user.id;
+
+      // Validation
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({
+          success: false,
+          message: 'Current password and new password are required'
+        });
+      }
+
+      // Password validation
+      if (newPassword.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: 'New password must be at least 6 characters long'
+        });
+      }
+
+      // Check if new password is same as current
+      if (currentPassword === newPassword) {
+        return res.status(400).json({
+          success: false,
+          message: 'New password must be different from current password'
+        });
+      }
+
+      // Find user
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      // Verify current password
+      const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password);
+      if (!isCurrentPasswordValid) {
+        return res.status(401).json({
+          success: false,
+          message: 'Current password is incorrect'
+        });
+      }
+
+      // Hash new password
+      const saltRounds = parseInt(process.env.BCRYPT_ROUNDS) || 12;
+      const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
+
+      // Update password
+      user.password = hashedNewPassword;
+      user.updatedAt = new Date();
+      await user.save();
+
+      res.json({
+        success: true,
+        message: 'Password changed successfully'
+      });
+
+    } catch (error) {
+      console.error('Change password error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error during password change',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  // Get user profile with verification info
   async getProfile(req, res) {
     try {
       const userId = req.user.id;
 
-      const user = await User.findById(userId).select('-password -resetPasswordToken -emailVerificationToken');
-
+      const user = await User.findById(userId).select('-password -resetPasswordToken -resetPasswordExpiry -emailVerificationToken');
       if (!user) {
         return res.status(404).json({
           success: false,
@@ -381,38 +472,24 @@ class AuthController {
         });
       }
 
-      // Prepare response with account summary
-      const userResponse = {
-        id: user._id,
-        email: user.email,
-        username: user.username,
-        fullName: user.fullName,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        phone: user.phoneNumber,
-        dateOfBirth: user.dateOfBirth,
-        country: user.country,
-        isVerified: user.isEmailVerified,
-        isAccountActivated: user.isAccountActivated,
-        accountStatus: user.accountStatus,
-        isApiAccessApproved: user.isApiAccessApproved,
-        apiAccessStatus: user.apiAccessStatus,
-        profileCompleteness: user.profileCompleteness,
-        preferences: user.preferences,
-        createdAt: user.createdAt,
-        lastLogin: user.lastLoginAt,
-        // Add account summary
-        accountSummary: {
-          canCreateBusiness: user.canCreateBusiness(),
-          canAccessApi: user.canAccessApi(),
-          activationStatus: user.accountStatus,
-          apiAccessStatus: user.apiAccessStatus
+      // Add verification info to response
+      const userWithVerification = {
+        ...user.toObject(),
+        verification: {
+          emailVerified: user.isVerified,
+          adminVerificationStatus: user.verificationStatus || 'pending',
+          apiAccessEnabled: user.isApiEnabled || false,
+          canCreateBusiness: user.isApiEnabled && user.verificationStatus === 'approved',
+          canAccessApi: user.isApiEnabled && user.verificationStatus === 'approved' && user.accountStatus === 'active',
+          verifiedAt: user.verifiedAt,
+          rejectionReason: user.rejectionReason,
+          accountStatus: user.accountStatus || 'active'
         }
       };
 
       res.json({
         success: true,
-        data: userResponse
+        data: userWithVerification
       });
 
     } catch (error) {
@@ -425,138 +502,12 @@ class AuthController {
     }
   }
 
-  // Forgot password (unchanged)
-  async forgotPassword(req, res) {
+  // Get detailed verification status
+  async getVerificationStatus(req, res) {
     try {
-      const { email } = req.body;
-
-      if (!email) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email is required'
-        });
-      }
-
-      const user = await User.findOne({ email: email.toLowerCase() });
-
-      // Always return success message for security (don't reveal if email exists)
-      const successMessage = 'If an account with that email exists, a password reset link has been sent';
-
-      if (!user) {
-        return res.json({
-          success: true,
-          message: successMessage
-        });
-      }
-
-      // Generate reset token
-      const resetToken = user.generateResetPasswordToken();
-      await user.save();
-
-      // TODO: Send reset email
-      // await emailService.sendPasswordReset(user.email, resetToken);
-
-      const response = {
-        success: true,
-        message: successMessage
-      };
-
-      // In development, include token for testing
-      if (process.env.NODE_ENV === 'development') {
-        response.resetToken = resetToken;
-        response.devNote = 'Reset token included for development only';
-      }
-
-      res.json(response);
-
-    } catch (error) {
-      console.error('Forgot password error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Internal server error',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-  }
-
-  // Reset password (unchanged)
-  async resetPassword(req, res) {
-    try {
-      const { token, newPassword } = req.body;
-
-      if (!token || !newPassword) {
-        return res.status(400).json({
-          success: false,
-          message: 'Token and new password are required'
-        });
-      }
-
-      if (newPassword.length < 6) {
-        return res.status(400).json({
-          success: false,
-          message: 'Password must be at least 6 characters long'
-        });
-      }
-
-      // Hash the token to compare with stored hash
-      const crypto = require('crypto');
-      const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-
-      const user = await User.findOne({
-        resetPasswordToken: hashedToken,
-        resetPasswordExpires: { $gt: Date.now() }
-      });
-
-      if (!user) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid or expired reset token'
-        });
-      }
-
-      // Update password and clear reset token
-      user.password = newPassword; // Will be hashed by pre-save middleware
-      user.resetPasswordToken = undefined;
-      user.resetPasswordExpires = undefined;
-      await user.save();
-
-      res.json({
-        success: true,
-        message: 'Password reset successfully'
-      });
-
-    } catch (error) {
-      console.error('Reset password error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Internal server error',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-  }
-
-  // Change password (unchanged)
-  async changePassword(req, res) {
-    try {
-      const { currentPassword, newPassword } = req.body;
       const userId = req.user.id;
 
-      if (!currentPassword || !newPassword) {
-        return res.status(400).json({
-          success: false,
-          message: 'Current password and new password are required'
-        });
-      }
-
-      if (newPassword.length < 6) {
-        return res.status(400).json({
-          success: false,
-          message: 'New password must be at least 6 characters long'
-        });
-      }
-
-      const user = await User.findById(userId);
-
+      const user = await User.findById(userId).select('verificationStatus isApiEnabled verifiedAt rejectionReason verificationHistory accountStatus suspensionReason');
       if (!user) {
         return res.status(404).json({
           success: false,
@@ -564,27 +515,28 @@ class AuthController {
         });
       }
 
-      // Verify current password
-      const isCurrentPasswordValid = await user.comparePassword(currentPassword);
+      const status = {
+        verificationStatus: user.verificationStatus || 'pending',
+        isApiEnabled: user.isApiEnabled || false,
+        canAccessApi: user.isApiEnabled && user.verificationStatus === 'approved' && user.accountStatus === 'active',
+        accountStatus: user.accountStatus || 'active',
+        verifiedAt: user.verifiedAt,
+        rejectionReason: user.rejectionReason,
+        suspensionReason: user.suspensionReason,
+        history: user.verificationHistory || []
+      };
 
-      if (!isCurrentPasswordValid) {
-        return res.status(401).json({
-          success: false,
-          message: 'Current password is incorrect'
-        });
-      }
-
-      // Update password
-      user.password = newPassword; // Will be hashed by pre-save middleware
-      await user.save();
+      // Add status messages and next steps
+      const statusInfo = this.getDetailedVerificationInfo(user);
+      Object.assign(status, statusInfo);
 
       res.json({
         success: true,
-        message: 'Password changed successfully'
+        data: status
       });
 
     } catch (error) {
-      console.error('Change password error:', error);
+      console.error('Get verification status error:', error);
       res.status(500).json({
         success: false,
         message: 'Internal server error',
@@ -593,15 +545,67 @@ class AuthController {
     }
   }
 
-  // Logout (unchanged)
+  // Verify email
+  async verifyEmail(req, res) {
+    try {
+      const { token } = req.body;
+
+      if (!token) {
+        return res.status(400).json({
+          success: false,
+          message: 'Verification token is required'
+        });
+      }
+
+      // Find user with valid verification token
+      const user = await User.findOne({
+        emailVerificationToken: token,
+        emailVerificationExpiry: { $gt: new Date() }
+      });
+
+      if (!user) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid or expired verification token'
+        });
+      }
+
+      // Update user verification status
+      user.isVerified = true;
+      user.emailVerificationToken = undefined;
+      user.emailVerificationExpiry = undefined;
+      user.updatedAt = new Date();
+      await user.save();
+
+      // Get current verification info
+      const verificationInfo = this.getDetailedVerificationInfo(user);
+
+      res.json({
+        success: true,
+        message: 'Email verified successfully',
+        data: {
+          isVerified: true,
+          nextSteps: verificationInfo.nextSteps,
+          verificationStatus: user.verificationStatus || 'pending'
+        }
+      });
+
+    } catch (error) {
+      console.error('Email verification error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error during email verification',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  // Logout user
   async logout(req, res) {
     try {
-      // In a stateless JWT system, logout is typically handled client-side
-      // by removing the token. However, you might want to implement token blacklisting
+      // In a stateless JWT system, logout is handled client-side
+      // You could maintain a blacklist of tokens in Redis for enhanced security
       
-      // TODO: Add token to blacklist if implementing token blacklisting
-      // await TokenBlacklist.create({ token: req.token, expiresAt: req.user.exp });
-
       res.json({
         success: true,
         message: 'Logged out successfully'
@@ -611,10 +615,90 @@ class AuthController {
       console.error('Logout error:', error);
       res.status(500).json({
         success: false,
-        message: 'Internal server error',
+        message: 'Internal server error during logout',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
+  }
+
+  // Helper method to get verification info for login
+  getVerificationInfo(user) {
+    const info = {
+      requiresAttention: false,
+      message: null,
+      status: user.verificationStatus || 'pending',
+      apiEnabled: user.isApiEnabled || false,
+      nextSteps: null
+    };
+
+    if (!user.isVerified) {
+      info.requiresAttention = true;
+      info.message = 'Please verify your email address';
+      info.nextSteps = 'Check your email and click the verification link';
+    } else if (user.verificationStatus === 'pending') {
+      info.requiresAttention = true;
+      info.message = 'Your account is pending admin verification for API access';
+      info.nextSteps = 'Please wait for admin review (1-2 business days)';
+    } else if (user.verificationStatus === 'rejected') {
+      info.requiresAttention = true;
+      info.message = 'Your account verification was rejected';
+      info.nextSteps = 'Contact support for more information';
+      info.rejectionReason = user.rejectionReason;
+    } else if (user.verificationStatus === 'approved' && !user.isApiEnabled) {
+      info.requiresAttention = true;
+      info.message = 'Your account is approved but API access is disabled';
+      info.nextSteps = 'Contact support to enable API access';
+    }
+
+    return info;
+  }
+
+  // Helper method to get detailed verification info
+  getDetailedVerificationInfo(user) {
+    const info = {};
+
+    switch (user.verificationStatus) {
+      case 'pending':
+        info.message = 'Your account is pending admin verification';
+        info.nextSteps = 'Please wait for admin review (1-2 business days)';
+        info.estimatedTime = '1-2 business days';
+        break;
+      case 'approved':
+        if (user.isApiEnabled) {
+          info.message = 'Your account is verified and API access is enabled';
+          info.nextSteps = 'You can now create businesses and use API features';
+        } else {
+          info.message = 'Your account is verified but API access is disabled';
+          info.nextSteps = 'Contact support to enable API access';
+        }
+        break;
+      case 'rejected':
+        info.message = 'Your account verification was rejected';
+        info.nextSteps = 'Please contact support for more information';
+        break;
+      case 'suspended':
+        info.message = 'Your account has been suspended';
+        info.nextSteps = 'Contact support immediately';
+        break;
+      default:
+        info.message = 'Unknown verification status';
+        info.nextSteps = 'Contact support for assistance';
+    }
+
+    // Add account status info
+    if (user.accountStatus === 'suspended') {
+      info.message = 'Your account has been suspended';
+      info.nextSteps = 'Contact support immediately';
+      info.urgency = 'high';
+    } else if (user.accountStatus === 'deactivated') {
+      info.message = 'Your account has been deactivated';
+      info.nextSteps = 'Contact support to reactivate your account';
+      info.urgency = 'high';
+    }
+
+    info.supportEmail = process.env.SUPPORT_EMAIL || 'support@company.com';
+    
+    return info;
   }
 }
 
