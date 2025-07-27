@@ -246,36 +246,6 @@ router.use(authenticateToken);
  *     responses:
  *       200:
  *         description: User debug information retrieved
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 userId:
- *                   type: string
- *                 email:
- *                   type: string
- *                 analysis:
- *                   type: object
- *                   properties:
- *                     emailVerified:
- *                       type: boolean
- *                     verificationStatus:
- *                       type: string
- *                     isApiEnabled:
- *                       type: boolean
- *                     accountStatus:
- *                       type: string
- *                     issues:
- *                       type: array
- *                       items:
- *                         type: string
- *                     canCreateBusiness:
- *                       type: boolean
- *                 quickFixes:
- *                   type: object
  *       500:
  *         description: Internal server error
  */
@@ -293,7 +263,7 @@ router.get('/debug-user-status', async (req, res) => {
       });
     }
 
-    // Show ALL user fields for debugging (excluding sensitive data)
+    // Show user verification details (excluding sensitive data)
     const userObj = user.toObject();
     delete userObj.password;
     delete userObj.resetPasswordToken;
@@ -338,7 +308,14 @@ router.get('/debug-user-status', async (req, res) => {
       email: user.email,
       fullName: user.fullName,
       analysis,
-      rawUserData: userObj,
+      rawUserFields: {
+        isVerified: user.isVerified,
+        verificationStatus: user.verificationStatus,
+        isApiEnabled: user.isApiEnabled,
+        accountStatus: user.accountStatus,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
+      },
       
       // Quick fix suggestions
       quickFixes: {
@@ -348,14 +325,16 @@ router.get('/debug-user-status', async (req, res) => {
         needsActiveStatus: user.accountStatus && user.accountStatus !== 'active'
       },
       
-      // Instructions
-      instructions: {
-        message: "If you need to fix verification issues, use the admin endpoints:",
-        adminEndpoints: [
-          "POST /api/v1/admin/users/{userId}/verify - for admin approval",
-          "POST /api/v1/admin/users/{userId}/force-verify-email - to verify email",
-          "PUT /api/v1/admin/users/{userId}/api-access - to enable API access"
-        ]
+      // What the middleware checks
+      middlewareChecks: {
+        emailVerified: user.isVerified || false,
+        adminApproved: (user.verificationStatus || 'pending') === 'approved',
+        apiEnabled: user.isApiEnabled || false,
+        accountActive: (user.accountStatus || 'active') === 'active',
+        allPassed: (user.isVerified || false) && 
+                  ((user.verificationStatus || 'pending') === 'approved') && 
+                  (user.isApiEnabled || false) && 
+                  ((user.accountStatus || 'active') === 'active')
       }
     });
 
@@ -384,7 +363,238 @@ router.get('/debug-user-status', async (req, res) => {
  *       500:
  *         description: Internal server error
  */
-router.get('/check-activation', businessController.checkActivationStatus);
+/**
+ * @swagger
+ * /api/v1/business/check-activation:
+ *   get:
+ *     summary: Check account activation status (working version)
+ *     description: Check if user can create businesses without admin approval middleware
+ *     tags: [Business Management]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Account activation status
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/check-activation', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { User } = require('../models');
+    
+    const user = await User.findById(userId).select('verificationStatus isApiEnabled accountStatus isVerified createdAt email fullName');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check all requirements
+    const emailVerified = user.isVerified || false;
+    const adminApproved = (user.verificationStatus || 'pending') === 'approved';
+    const apiEnabled = user.isApiEnabled || false;
+    const accountActive = (user.accountStatus || 'active') === 'active';
+    
+    const canCreateBusiness = emailVerified && adminApproved && apiEnabled && accountActive;
+
+    // Helper function to get next steps
+    const getNextSteps = () => {
+      if (!emailVerified) {
+        return 'Please verify your email address by clicking the link sent to your email';
+      }
+      
+      if (!adminApproved) {
+        return 'Your account is pending admin approval. Please wait for verification (1-2 business days)';
+      }
+
+      if (!apiEnabled) {
+        return 'Your API access needs to be enabled by admin. Contact support if this is taking too long.';
+      }
+      
+      if (!accountActive) {
+        return 'Your account status is not active. Please contact support for assistance';
+      }
+      
+      return 'You can now create and manage your business';
+    };
+
+    res.json({
+      success: true,
+      data: {
+        userId,
+        email: user.email,
+        fullName: user.fullName,
+        isEmailVerified: emailVerified,
+        verificationStatus: user.verificationStatus || 'pending',
+        isApiEnabled: apiEnabled,
+        accountStatus: user.accountStatus || 'active',
+        registeredAt: user.createdAt,
+        canCreateBusiness,
+        message: canCreateBusiness
+          ? 'Your account is fully verified and you can create businesses'
+          : 'Your account requires additional verification steps',
+        nextSteps: getNextSteps(),
+        requirements: {
+          emailVerified,
+          adminApproved,
+          apiEnabled,
+          accountActive
+        },
+        // Debug info
+        debugInfo: {
+          rawVerificationStatus: user.verificationStatus,
+          rawIsApiEnabled: user.isApiEnabled,
+          rawAccountStatus: user.accountStatus,
+          rawIsVerified: user.isVerified
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Check activation status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error checking activation status',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/v1/business/test-middleware-check:
+ *   get:
+ *     summary: Test what the middleware would do
+ *     description: Simulate the middleware check to see exactly where it would fail
+ *     tags: [Debug]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Middleware simulation results
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/test-middleware-check', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { User } = require('../models');
+    
+    const user = await User.findById(userId).select('verificationStatus isApiEnabled accountStatus isVerified email fullName');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    console.log(`🔍 Middleware simulation for user: ${user.email}`, {
+      isVerified: user.isVerified,
+      verificationStatus: user.verificationStatus,
+      isApiEnabled: user.isApiEnabled,
+      accountStatus: user.accountStatus
+    });
+
+    // Simulate the exact middleware checks
+    const checks = {
+      step1_emailVerified: user.isVerified || false,
+      step2_verificationStatus: user.verificationStatus || 'NOT_SET',
+      step2_isApproved: (user.verificationStatus || 'pending') === 'approved',
+      step3_isApiEnabled: user.isApiEnabled || false,
+      step4_accountStatus: user.accountStatus || 'NOT_SET',
+      step4_isActive: (user.accountStatus || 'active') === 'active'
+    };
+
+    let failedAt = null;
+    let canPass = true;
+    let errorResponse = null;
+
+    // Check if user email is verified FIRST
+    if (!checks.step1_emailVerified) {
+      failedAt = 'EMAIL_VERIFICATION';
+      canPass = false;
+      errorResponse = {
+        success: false,
+        message: 'Please verify your email address first before creating a business.',
+        emailVerified: false,
+        verificationStatus: checks.step2_verificationStatus,
+        isApiEnabled: false,
+        step: 1,
+        nextStep: 'Check your email and click the verification link'
+      };
+    }
+    // Check admin approval
+    else if (!checks.step2_isApproved) {
+      failedAt = 'ADMIN_APPROVAL';
+      canPass = false;
+      errorResponse = {
+        success: false,
+        message: 'Your account is pending admin approval. Please wait for admin verification before creating a business.',
+        verificationStatus: checks.step2_verificationStatus,
+        isApiEnabled: checks.step3_isApiEnabled,
+        emailVerified: checks.step1_emailVerified,
+        step: 2,
+        currentStatus: checks.step2_verificationStatus,
+        nextStep: 'Wait for admin verification (1-2 business days)'
+      };
+    }
+    // Check API access
+    else if (!checks.step3_isApiEnabled) {
+      failedAt = 'API_ACCESS';
+      canPass = false;
+      errorResponse = {
+        success: false,
+        message: 'Your API access is not enabled. Please contact admin for API access.',
+        verificationStatus: 'approved',
+        isApiEnabled: false,
+        emailVerified: checks.step1_emailVerified,
+        step: 3,
+        nextStep: 'Contact admin to enable API access'
+      };
+    }
+    // Check account status
+    else if (!checks.step4_isActive) {
+      failedAt = 'ACCOUNT_STATUS';
+      canPass = false;
+      errorResponse = {
+        success: false,
+        message: `Your account status is ${checks.step4_accountStatus}. Contact support for assistance.`,
+        accountStatus: checks.step4_accountStatus,
+        verificationStatus: checks.step2_verificationStatus,
+        isApiEnabled: checks.step3_isApiEnabled,
+        emailVerified: checks.step1_emailVerified
+      };
+    }
+
+    res.json({
+      success: true,
+      message: 'Middleware simulation complete',
+      userEmail: user.email,
+      middlewareWouldPass: canPass,
+      failedAt,
+      checks,
+      simulatedErrorResponse: errorResponse,
+      actualDatabaseValues: {
+        isVerified: user.isVerified,
+        verificationStatus: user.verificationStatus,
+        isApiEnabled: user.isApiEnabled,
+        accountStatus: user.accountStatus
+      }
+    });
+
+  } catch (error) {
+    console.error('Test middleware check error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error testing middleware',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
 
 // ============= CORE BUSINESS MANAGEMENT =============
 

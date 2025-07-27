@@ -706,8 +706,8 @@ class AdminUserController {
     }
   }
 
-  // Migration endpoint to fix user fields
-  async migrateUserFields(req, res) {
+// Migration endpoint to fix user fields
+async migrateUserFields(req, res) {
     try {
       if (req.admin.role !== 'super_admin') {
         return res.status(403).json({
@@ -715,9 +715,9 @@ class AdminUserController {
           message: 'Only super admins can run user migration'
         });
       }
-
+  
       console.log(`👨‍💼 User migration initiated by ${req.admin.email}`);
-
+  
       // Update users that don't have verificationStatus
       const result1 = await User.updateMany(
         { verificationStatus: { $exists: false } },
@@ -728,7 +728,7 @@ class AdminUserController {
           } 
         }
       );
-
+  
       // Update users that don't have accountStatus
       const result2 = await User.updateMany(
         { accountStatus: { $exists: false } },
@@ -739,7 +739,7 @@ class AdminUserController {
           } 
         }
       );
-
+  
       // Update users that don't have isApiEnabled
       const result3 = await User.updateMany(
         { isApiEnabled: { $exists: false } },
@@ -750,7 +750,7 @@ class AdminUserController {
           } 
         }
       );
-
+  
       // Initialize verificationHistory for users that don't have it
       const result4 = await User.updateMany(
         { verificationHistory: { $exists: false } },
@@ -761,9 +761,9 @@ class AdminUserController {
           } 
         }
       );
-
+  
       console.log(`✅ User migration completed by ${req.admin.email}`);
-
+  
       res.json({
         success: true,
         message: 'User field migration completed successfully',
@@ -777,7 +777,7 @@ class AdminUserController {
         migratedBy: req.admin.email,
         migratedAt: new Date()
       });
-
+  
     } catch (error) {
       console.error('User migration error:', error);
       res.status(500).json({
