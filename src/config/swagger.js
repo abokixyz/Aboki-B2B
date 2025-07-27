@@ -95,14 +95,14 @@ const options = {
           in: 'header',
           name: 'X-API-Key',
           description: 'Public API key for business authentication. Format: pk_live_... or pk_test_... for test mode.',
-          example: 'YOUR_API_KEY'
+          example: 'pk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
         },
         SecretKeyAuth: {
           type: 'apiKey',
           in: 'header', 
           name: 'X-Secret-Key',
           description: 'Secret key for business authentication. Format: ***REMOVED***... or ***REMOVED***... for test mode. Keep this secret and never expose it in client-side code.',
-          example: '***REMOVED***7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c'
+          example: '***REMOVED***xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
         }
       },
       schemas: {
@@ -479,6 +479,19 @@ try {
 
 const swaggerSetup = (app) => {
   try {
+    // Generate example keys for documentation (not real keys)
+    const generateExampleKey = (prefix, length) => {
+      const chars = 'abcdef0123456789';
+      let result = '';
+      for (let i = 0; i < length; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return `${prefix}${result}`;
+    };
+
+    const exampleApiKey = generateExampleKey('pk_live_', 32);
+    const exampleSecretKey = generateExampleKey('***REMOVED***', 64);
+
     // Swagger page with custom styling
     app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
       explorer: true,
@@ -664,10 +677,10 @@ const swaggerSetup = (app) => {
           return order.indexOf(a) - order.indexOf(b);
         },
         operationsSorter: 'alpha',
-        // Pre-fill authorization examples
+        // Pre-fill authorization examples with generated keys
         preauthorizeApiKey: {
-          'X-API-Key': 'YOUR_API_KEY',
-          'X-Secret-Key': '***REMOVED***7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c'
+          'X-API-Key': exampleApiKey,
+          'X-Secret-Key': exampleSecretKey
         }
       },
       customJs: [
@@ -678,13 +691,13 @@ const swaggerSetup = (app) => {
           setTimeout(function() {
             const apiKeyInput = document.querySelector('input[placeholder="X-API-Key"]');
             if (apiKeyInput) {
-              apiKeyInput.placeholder = 'YOUR_API_KEY';
+              apiKeyInput.placeholder = '${exampleApiKey}';
               apiKeyInput.style.fontSize = '13px';
             }
             
             const secretKeyInput = document.querySelector('input[placeholder="X-Secret-Key"]');
             if (secretKeyInput) {
-              secretKeyInput.placeholder = '***REMOVED***7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c';
+              secretKeyInput.placeholder = '${exampleSecretKey}';
               secretKeyInput.style.fontSize = '13px';
             }
           }, 1000);
@@ -739,8 +752,8 @@ const swaggerSetup = (app) => {
           'API Key Management'
         ],
         authenticationExamples: {
-          apiKey: 'YOUR_API_KEY',
-          secretKey: '***REMOVED***7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c',
+          apiKey: exampleApiKey,
+          secretKey: exampleSecretKey,
           jwtToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2NzU5Nzg4YWI...',
           adminToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhZG1pbklkIjoiNjc1OTc4OGFi...'
         },
@@ -978,11 +991,11 @@ const swaggerSetup = (app) => {
               'POST /business-onramp/quote'
             ],
             headers: {
-              'X-API-Key': 'YOUR_API_KEY'
+              'X-API-Key': exampleApiKey
             },
             example: `curl -X GET \\
   'https://api.yourdomain.com/api/v1/business-onramp/supported-tokens' \\
-  -H 'X-API-Key: YOUR_API_KEY'`
+  -H 'X-API-Key: ${exampleApiKey}'`
           },
           fullAuthentication: {
             description: 'Used for sensitive operations like creating orders and accessing order data',
@@ -993,13 +1006,13 @@ const swaggerSetup = (app) => {
               'GET /business-onramp/stats'
             ],
             headers: {
-              'X-API-Key': 'YOUR_API_KEY',
-              'X-Secret-Key': '***REMOVED***7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c'
+              'X-API-Key': exampleApiKey,
+              'X-Secret-Key': exampleSecretKey
             },
             example: `curl -X POST \\
   'https://api.yourdomain.com/api/v1/business-onramp/create' \\
-  -H 'X-API-Key: YOUR_API_KEY' \\
-  -H 'X-Secret-Key: ***REMOVED***7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c' \\
+  -H 'X-API-Key: ${exampleApiKey}' \\
+  -H 'X-Secret-Key: ${exampleSecretKey}' \\
   -H 'Content-Type: application/json' \\
   -d '{ "customerEmail": "customer@example.com", ... }'`
           }
@@ -1008,16 +1021,16 @@ const swaggerSetup = (app) => {
           apiKey: {
             format: 'pk_{environment}_{32_character_string}',
             examples: {
-              live: 'YOUR_API_KEY',
-              test: 'pk_test_a1b2c3d4e5f6789012345678901234ab'
+              live: exampleApiKey,
+              test: 'pk_test_' + generateExampleKey('', 32)
             },
             description: 'Public key that identifies your business account'
           },
           secretKey: {
             format: 'sk_{environment}_{64_character_string}',
             examples: {
-              live: '***REMOVED***7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c',
-              test: '***REMOVED***1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890'
+              live: exampleSecretKey,
+              test: '***REMOVED***' + generateExampleKey('', 64)
             },
             description: 'Secret key for sensitive operations - keep this secure and never expose in client-side code'
           }
