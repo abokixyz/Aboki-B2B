@@ -225,10 +225,166 @@ router.use(authenticateToken);
  * @swagger
  * tags:
  *   - name: Business Management
- *     description: Business registration, management, and API key generation
+ *     description: Business registration, management, and API key generation (requires admin approval)
  *   - name: Business Token Management
  *     description: Manage supported destination tokens, fees, and payment configuration
+ *   - name: Debug
+ *     description: Debug endpoints for development and troubleshooting
  */
+
+// ============= DEBUG ENDPOINTS (for development) =============
+
+/**
+ * @swagger
+ * /api/v1/business/debug-user-status:
+ *   get:
+ *     summary: Debug current user verification status
+ *     description: Check what verification requirements are missing for the current user
+ *     tags: [Debug]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User debug information retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 userId:
+ *                   type: string
+ *                 email:
+ *                   type: string
+ *                 analysis:
+ *                   type: object
+ *                   properties:
+ *                     emailVerified:
+ *                       type: boolean
+ *                     verificationStatus:
+ *                       type: string
+ *                     isApiEnabled:
+ *                       type: boolean
+ *                     accountStatus:
+ *                       type: string
+ *                     issues:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     canCreateBusiness:
+ *                       type: boolean
+ *                 quickFixes:
+ *                   type: object
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/debug-user-status', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { User } = require('../models');
+    
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Show ALL user fields for debugging (excluding sensitive data)
+    const userObj = user.toObject();
+    delete userObj.password;
+    delete userObj.resetPasswordToken;
+    delete userObj.resetPasswordExpiry;
+    delete userObj.emailVerificationToken;
+
+    const analysis = {
+      emailVerified: user.isVerified || false,
+      verificationStatus: user.verificationStatus || 'NOT_SET',
+      isApiEnabled: user.isApiEnabled || false,
+      accountStatus: user.accountStatus || 'NOT_SET',
+      
+      // Check what's missing
+      issues: [],
+      canCreateBusiness: false
+    };
+
+    // Analyze issues
+    if (!user.isVerified) {
+      analysis.issues.push('EMAIL_NOT_VERIFIED');
+    }
+    
+    if (!user.verificationStatus || user.verificationStatus !== 'approved') {
+      analysis.issues.push('ADMIN_APPROVAL_PENDING');
+    }
+    
+    if (!user.isApiEnabled) {
+      analysis.issues.push('API_ACCESS_NOT_ENABLED');
+    }
+    
+    if (user.accountStatus && user.accountStatus !== 'active') {
+      analysis.issues.push('ACCOUNT_NOT_ACTIVE');
+    }
+
+    // Check if user can create business
+    analysis.canCreateBusiness = analysis.issues.length === 0;
+
+    res.json({
+      success: true,
+      message: 'User debug information',
+      userId,
+      email: user.email,
+      fullName: user.fullName,
+      analysis,
+      rawUserData: userObj,
+      
+      // Quick fix suggestions
+      quickFixes: {
+        forceVerifyEmail: !user.isVerified,
+        needsAdminApproval: !user.verificationStatus || user.verificationStatus !== 'approved',
+        needsApiAccess: !user.isApiEnabled,
+        needsActiveStatus: user.accountStatus && user.accountStatus !== 'active'
+      },
+      
+      // Instructions
+      instructions: {
+        message: "If you need to fix verification issues, use the admin endpoints:",
+        adminEndpoints: [
+          "POST /api/v1/admin/users/{userId}/verify - for admin approval",
+          "POST /api/v1/admin/users/{userId}/force-verify-email - to verify email",
+          "PUT /api/v1/admin/users/{userId}/api-access - to enable API access"
+        ]
+      }
+    });
+
+  } catch (error) {
+    console.error('Debug user status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting debug info',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/v1/business/check-activation:
+ *   get:
+ *     summary: Check account activation status (public endpoint)
+ *     description: Check if user can create businesses without admin approval middleware
+ *     tags: [Business Management]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Account activation status
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/check-activation', businessController.checkActivationStatus);
 
 // ============= CORE BUSINESS MANAGEMENT =============
 
@@ -236,8 +392,8 @@ router.use(authenticateToken);
  * @swagger
  * /api/v1/business/create:
  *   post:
- *     summary: Register a new business and generate API credentials
- *     description: Creates a new business with automatic default tokens (ETH, USDC, USDT, SOL) and generates API credentials
+ *     summary: Register a new business and generate API credentials (requires admin approval)
+ *     description: Creates a new business with automatic default tokens (ETH, USDC, USDT, SOL) and generates API credentials. User must be admin-approved first.
  *     tags: [Business Management]
  *     security:
  *       - bearerAuth: []
@@ -321,6 +477,37 @@ router.use(authenticateToken);
  *                   $ref: '#/components/schemas/Business'
  *                 apiCredentials:
  *                   $ref: '#/components/schemas/ApiCredentials'
+ *       403:
+ *         description: Account not approved - admin verification required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Your account is pending admin approval. Please wait for admin verification before creating a business."
+ *                 verificationStatus:
+ *                   type: string
+ *                   example: "pending"
+ *                 isApiEnabled:
+ *                   type: boolean
+ *                   example: false
+ *                 emailVerified:
+ *                   type: boolean
+ *                   example: true
+ *                 step:
+ *                   type: number
+ *                   example: 2
+ *                 nextStep:
+ *                   type: string
+ *                   example: "Wait for admin verification (1-2 business days)"
+ *                 note:
+ *                   type: string
+ *                   example: "Admin verification is required for business creation and API access"
  *       400:
  *         description: Bad request - validation error
  *         content:
@@ -340,7 +527,7 @@ router.use(authenticateToken);
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.post('/create', businessController.createBusiness);
+router.post('/create', businessController.constructor.checkAccountActivation, businessController.createBusiness);
 
 /**
  * @swagger
@@ -399,7 +586,7 @@ router.post('/create', businessController.createBusiness);
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.get('/profile', businessController.getBusinessProfile);
+router.get('/profile', businessController.constructor.checkAccountActivation, businessController.getBusinessProfile);
 
 /**
  * @swagger
@@ -462,7 +649,7 @@ router.get('/profile', businessController.getBusinessProfile);
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.put('/update', businessController.updateBusiness);
+router.put('/update', businessController.constructor.checkAccountActivation, businessController.updateBusiness);
 
 /**
  * @swagger
@@ -512,7 +699,7 @@ router.put('/update', businessController.updateBusiness);
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.get('/verification-status', businessController.getVerificationStatus);
+router.get('/verification-status', businessController.constructor.checkAccountActivation, businessController.getVerificationStatus);
 
 /**
  * @swagger
@@ -573,7 +760,7 @@ router.get('/verification-status', businessController.getVerificationStatus);
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.get('/api-keys', businessController.getApiKeyInfo);
+router.get('/api-keys', businessController.constructor.checkAccountActivation, businessController.getApiKeyInfo);
 
 /**
  * @swagger
@@ -626,7 +813,7 @@ router.get('/api-keys', businessController.getApiKeyInfo);
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.post('/regenerate-api-keys', businessController.regenerateApiKeys);
+router.post('/regenerate-api-keys', businessController.constructor.checkAccountActivation, businessController.regenerateApiKeys);
 
 /**
  * @swagger
@@ -683,7 +870,7 @@ router.post('/regenerate-api-keys', businessController.regenerateApiKeys);
  *             schema:
  *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.delete('/delete', businessController.deleteBusiness);
+router.delete('/delete', businessController.constructor.checkAccountActivation, businessController.deleteBusiness);
 
 // ============= TOKEN MANAGEMENT =============
 
@@ -797,99 +984,10 @@ router.get('/tokens/supported', businessTokenController.getSupportedTokens);
  *     responses:
  *       200:
  *         description: Token breakdown retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     businessId:
- *                       type: string
- *                     businessName:
- *                       type: string
- *                     defaultTokens:
- *                       type: object
- *                       description: "Automatically provided tokens (ETH, USDC, USDT, SOL)"
- *                       properties:
- *                         base:
- *                           type: array
- *                           items:
- *                             $ref: '#/components/schemas/SupportedToken'
- *                         solana:
- *                           type: array
- *                           items:
- *                             $ref: '#/components/schemas/SupportedToken'
- *                         ethereum:
- *                           type: array
- *                           items:
- *                             $ref: '#/components/schemas/SupportedToken'
- *                     customTokens:
- *                       type: object
- *                       description: "Manually added tokens"
- *                       properties:
- *                         base:
- *                           type: array
- *                           items:
- *                             $ref: '#/components/schemas/SupportedToken'
- *                         solana:
- *                           type: array
- *                           items:
- *                             $ref: '#/components/schemas/SupportedToken'
- *                         ethereum:
- *                           type: array
- *                           items:
- *                             $ref: '#/components/schemas/SupportedToken'
- *                     summary:
- *                       type: object
- *                       properties:
- *                         defaultTokensCount:
- *                           type: object
- *                           properties:
- *                             base:
- *                               type: number
- *                             solana:
- *                               type: number
- *                             ethereum:
- *                               type: number
- *                             total:
- *                               type: number
- *                         customTokensCount:
- *                           type: object
- *                           properties:
- *                             base:
- *                               type: number
- *                             solana:
- *                               type: number
- *                             ethereum:
- *                               type: number
- *                             total:
- *                               type: number
- *                     info:
- *                       type: object
- *                       properties:
- *                         defaultTokensDescription:
- *                           type: string
- *                         feeCustomization:
- *                           type: string
- *                         defaultTokenProtection:
- *                           type: string
  *       404:
  *         description: Business not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
 router.get('/tokens/breakdown', businessTokenController.getTokensBreakdown);
 
@@ -920,7 +1018,7 @@ router.get('/tokens/breakdown', businessTokenController.getTokensBreakdown);
  *                 type: array
  *                 items:
  *                   type: object
-*                   required:
+ *                   required:
  *                     - address
  *                     - symbol
  *                     - name
@@ -950,52 +1048,12 @@ router.get('/tokens/breakdown', businessTokenController.getTokensBreakdown);
  *     responses:
  *       200:
  *         description: Custom tokens added successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Successfully added 2 custom tokens to base"
- *                 data:
- *                   type: object
- *                   properties:
- *                     network:
- *                       type: string
- *                     addedTokens:
- *                       type: array
- *                     duplicateTokens:
- *                       type: array
- *                     validationErrors:
- *                       type: array
- *                     totalTokens:
- *                       type: number
- *                     customTokens:
- *                       type: number
- *                     defaultTokens:
- *                       type: number
  *       400:
  *         description: Invalid token data or validation failed
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       404:
  *         description: Business not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
 router.post('/tokens/add', businessTokenController.addSupportedTokens);
 
@@ -1045,51 +1103,12 @@ router.post('/tokens/add', businessTokenController.addSupportedTokens);
  *     responses:
  *       200:
  *         description: Token configuration updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
- *                   example: "Token configuration updated successfully (Default token)"
- *                 data:
- *                   type: object
- *                   properties:
- *                     network:
- *                       type: string
- *                     address:
- *                       type: string
- *                     updates:
- *                       type: object
- *                     token:
- *                       $ref: '#/components/schemas/SupportedToken'
- *                     feeConfiguration:
- *                       $ref: '#/components/schemas/FeeConfiguration'
- *                     isDefaultToken:
- *                       type: boolean
- *                     note:
- *                       type: string
  *       400:
  *         description: Invalid update data
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       404:
  *         description: Token or business not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
 router.put('/tokens/update', businessTokenController.updateTokenConfiguration);
 
@@ -1102,108 +1121,15 @@ router.put('/tokens/update', businessTokenController.updateTokenConfiguration);
  *     tags: [Business Token Management]
  *     security:
  *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - tokenUpdates
- *             properties:
- *               tokenUpdates:
- *                 type: array
- *                 items:
- *                   type: object
- *                   required:
- *                     - network
- *                     - address
- *                     - feePercentage
- *                   properties:
- *                     network:
- *                       type: string
- *                       enum: [base, solana, ethereum]
- *                     address:
- *                       type: string
- *                       description: "Token contract address"
- *                     feePercentage:
- *                       type: number
- *                       minimum: 0
- *                       maximum: 10
- *                 example:
- *                   - network: "base"
- *                     address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
- *                     feePercentage: 1.0
- *                   - network: "solana"
- *                     address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
- *                     feePercentage: 1.5
  *     responses:
  *       200:
  *         description: Fees updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Updated fees for 2 tokens"
- *                 data:
- *                   type: object
- *                   properties:
- *                     updatedTokens:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           network:
- *                             type: string
- *                           address:
- *                             type: string
- *                           symbol:
- *                             type: string
- *                           name:
- *                             type: string
- *                           oldFeePercentage:
- *                             type: number
- *                           newFeePercentage:
- *                             type: number
- *                           isDefault:
- *                             type: boolean
- *                     errors:
- *                       type: array
- *                     summary:
- *                       type: object
- *                       properties:
- *                         totalUpdates:
- *                           type: number
- *                         defaultTokensUpdated:
- *                           type: number
- *                         customTokensUpdated:
- *                           type: number
- *                         errors:
- *                           type: number
  *       400:
  *         description: Invalid request data
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       404:
  *         description: Business not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
 router.put('/tokens/bulk-update-fees', businessTokenController.bulkUpdateFees);
 
@@ -1216,86 +1142,15 @@ router.put('/tokens/bulk-update-fees', businessTokenController.bulkUpdateFees);
  *     tags: [Business Token Management]
  *     security:
  *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - network
- *               - address
- *             properties:
- *               network:
- *                 type: string
- *                 enum: [base, solana, ethereum]
- *               address:
- *                 type: string
- *                 example: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
- *               forceRemove:
- *                 type: boolean
- *                 example: false
- *                 description: "Set to true to force remove default tokens (not recommended)"
  *     responses:
  *       200:
  *         description: Token removed successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Custom token removed successfully"
- *                 data:
- *                   type: object
- *                   properties:
- *                     network:
- *                       type: string
- *                     removedToken:
- *                       $ref: '#/components/schemas/SupportedToken'
- *                     remainingTokens:
- *                       type: number
- *                     wasDefaultToken:
- *                       type: boolean
- *                     warning:
- *                       type: string
  *       400:
  *         description: Cannot remove default tokens or invalid request
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Cannot remove default tokens. You can only disable them by setting isActive to false."
- *                 suggestion:
- *                   type: string
- *                 tokenInfo:
- *                   type: object
- *                 alternatives:
- *                   type: array
- *                   items:
- *                     type: string
  *       404:
  *         description: Token or business not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
 router.delete('/tokens/remove', businessTokenController.removeSupportedToken);
 
@@ -1308,91 +1163,15 @@ router.delete('/tokens/remove', businessTokenController.removeSupportedToken);
  *     tags: [Business Token Management]
  *     security:
  *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - network
- *               - confirmClear
- *             properties:
- *               network:
- *                 type: string
- *                 enum: [base, solana, ethereum]
- *               confirmClear:
- *                 type: boolean
- *                 example: true
- *               includeDefaults:
- *                 type: boolean
- *                 example: false
- *                 description: "Set to true to also remove default tokens (not recommended)"
  *     responses:
  *       200:
  *         description: Tokens cleared successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Successfully cleared 2 custom tokens from base network"
- *                 data:
- *                   type: object
- *                   properties:
- *                     network:
- *                       type: string
- *                     removedTokensCount:
- *                       type: number
- *                     remainingTokensCount:
- *                       type: number
- *                     removedTokens:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           symbol:
- *                             type: string
- *                           name:
- *                             type: string
- *                           isDefault:
- *                             type: boolean
- *                     keptTokens:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           symbol:
- *                             type: string
- *                           name:
- *                             type: string
- *                           isDefault:
- *                             type: boolean
- *                     warning:
- *                       type: string
  *       400:
  *         description: Confirmation required
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       404:
  *         description: Business not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
 router.delete('/tokens/clear', businessTokenController.clearNetworkTokens);
 
@@ -1427,58 +1206,12 @@ router.delete('/tokens/clear', businessTokenController.clearNetworkTokens);
  *     responses:
  *       200:
  *         description: Payment wallets updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Payment wallets updated successfully"
- *                 data:
- *                   type: object
- *                   properties:
- *                     paymentWallets:
- *                       type: object
- *                       properties:
- *                         solana:
- *                           type: string
- *                         base:
- *                           type: string
- *                         ethereum:
- *                           type: string
  *       400:
  *         description: Invalid wallet address format
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Invalid wallet address format"
- *                 errors:
- *                   type: array
- *                   items:
- *                     type: string
  *       404:
  *         description: Business not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
 router.put('/tokens/wallets', businessTokenController.setPaymentWallets);
 
@@ -1526,43 +1259,12 @@ router.put('/tokens/wallets', businessTokenController.setPaymentWallets);
  *     responses:
  *       200:
  *         description: Bank account information saved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Bank account information saved successfully"
- *                 data:
- *                   type: object
- *                   properties:
- *                     bankAccount:
- *                       $ref: '#/components/schemas/BankAccount'
- *                     note:
- *                       type: string
- *                       example: "Bank account verification will be performed during the first transaction"
  *       400:
  *         description: Invalid account information
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       404:
  *         description: Business not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
 router.put('/tokens/bank-account', businessTokenController.setBankAccount);
 
@@ -1578,148 +1280,10 @@ router.put('/tokens/bank-account', businessTokenController.setBankAccount);
  *     responses:
  *       200:
  *         description: Successfully retrieved payment configuration
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     businessInfo:
- *                       type: object
- *                       properties:
- *                         businessId:
- *                           type: string
- *                         businessName:
- *                           type: string
- *                     summary:
- *                       type: object
- *                       properties:
- *                         totalTokens:
- *                           type: object
- *                           properties:
- *                             base:
- *                               type: number
- *                             solana:
- *                               type: number
- *                             ethereum:
- *                               type: number
- *                         defaultTokens:
- *                           type: object
- *                           properties:
- *                             base:
- *                               type: number
- *                             solana:
- *                               type: number
- *                             ethereum:
- *                               type: number
- *                         customTokens:
- *                           type: object
- *                           properties:
- *                             base:
- *                               type: number
- *                             solana:
- *                               type: number
- *                             ethereum:
- *                               type: number
- *                         activeTokens:
- *                           type: object
- *                           properties:
- *                             base:
- *                               type: number
- *                             solana:
- *                               type: number
- *                             ethereum:
- *                               type: number
- *                         averageFees:
- *                           type: object
- *                           properties:
- *                             base:
- *                               type: string
- *                             solana:
- *                               type: string
- *                             ethereum:
- *                               type: string
- *                         walletConfigured:
- *                           type: object
- *                           properties:
- *                             solana:
- *                               type: boolean
- *                             base:
- *                               type: boolean
- *                             ethereum:
- *                               type: boolean
- *                         bankAccountConfigured:
- *                           type: boolean
- *                     supportedTokens:
- *                       type: object
- *                       properties:
- *                         base:
- *                           type: array
- *                           items:
- *                             $ref: '#/components/schemas/SupportedToken'
- *                         solana:
- *                           type: array
- *                           items:
- *                             $ref: '#/components/schemas/SupportedToken'
- *                         ethereum:
- *                           type: array
- *                           items:
- *                             $ref: '#/components/schemas/SupportedToken'
- *                     feeConfiguration:
- *                       type: object
- *                       properties:
- *                         base:
- *                           type: array
- *                           items:
- *                             $ref: '#/components/schemas/FeeConfiguration'
- *                         solana:
- *                           type: array
- *                           items:
- *                             $ref: '#/components/schemas/FeeConfiguration'
- *                         ethereum:
- *                           type: array
- *                           items:
- *                             $ref: '#/components/schemas/FeeConfiguration'
- *                     paymentWallets:
- *                       type: object
- *                       properties:
- *                         solana:
- *                           type: string
- *                         base:
- *                           type: string
- *                         ethereum:
- *                           type: string
- *                     bankAccount:
- *                       $ref: '#/components/schemas/BankAccount'
- *                     lastUpdated:
- *                       type: string
- *                       format: date-time
- *                     defaultTokensInfo:
- *                       type: object
- *                       properties:
- *                         description:
- *                           type: string
- *                         feeCustomization:
- *                           type: string
- *                         defaultTokenProtection:
- *                           type: string
  *       404:
  *         description: Business not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
 router.get('/tokens/configuration', businessTokenController.getPaymentConfiguration);
 
@@ -1737,80 +1301,12 @@ router.get('/tokens/configuration', businessTokenController.getPaymentConfigurat
  *     responses:
  *       200:
  *         description: Trading status retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     businessId:
- *                       type: string
- *                     businessName:
- *                       type: string
- *                     isReadyForTrading:
- *                       type: boolean
- *                       example: true
- *                       description: "True if business can accept trades with default tokens"
- *                     canReceiveCrypto:
- *                       type: boolean
- *                     canReceiveFiat:
- *                       type: boolean
- *                     hasActiveTokens:
- *                       type: boolean
- *                     hasDefaultTokens:
- *                       type: boolean
- *                       description: "Whether default tokens are configured"
- *                     activeTokensCount:
- *                       type: object
- *                       properties:
- *                         base:
- *                           type: number
- *                         solana:
- *                           type: number
- *                         ethereum:
- *                           type: number
- *                         total:
- *                           type: number
- *                     requirements:
- *                       type: object
- *                       properties:
- *                         tokensConfigured:
- *                           type: boolean
- *                         defaultTokensAvailable:
- *                           type: boolean
- *                         walletsConfigured:
- *                           type: boolean
- *                         bankAccountConfigured:
- *                           type: boolean
- *                         businessVerified:
- *                           type: boolean
- *                     defaultTokensInfo:
- *                       type: object
- *                       properties:
- *                         message:
- *                           type: string
- *                           example: "Default tokens (ETH, USDC, USDT, SOL) are automatically available with 0% fees"
- *                         customizable:
- *                           type: string
  *       404:
  *         description: Business not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.get('/trading-status', async (req, res) => {
+router.get('/trading-status', businessController.constructor.checkAccountActivation, async (req, res) => {
   try {
     const userId = req.user.id;
     const { Business } = require('../models');
@@ -1898,62 +1394,14 @@ router.get('/trading-status', async (req, res) => {
  *     responses:
  *       200:
  *         description: Token validation result
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     isSupported:
- *                       type: boolean
- *                       example: true
- *                     token:
- *                       allOf:
- *                         - $ref: '#/components/schemas/SupportedToken'
- *                         - type: object
- *                           properties:
- *                             isDefaultToken:
- *                               type: boolean
- *                               description: "Whether this is a default token"
- *                     feePercentage:
- *                       type: number
- *                       example: 1.5
- *                     paymentWallet:
- *                       type: string
- *                       example: "0x742d35Cc6634C0532925a3b8D1D8ce28D2e67F5c"
- *                     networkSupported:
- *                       type: boolean
- *                       example: true
- *                     tokenType:
- *                       type: string
- *                       enum: [default, custom]
- *                       example: "default"
- *                       description: "Whether token is default or custom"
  *       400:
  *         description: Invalid request parameters
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       404:
  *         description: Token not supported or business not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  *       500:
  *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/BusinessErrorResponse'
  */
-router.post('/tokens/validate-for-trading', async (req, res) => {
+router.post('/tokens/validate-for-trading', businessController.constructor.checkAccountActivation, async (req, res) => {
   try {
     const userId = req.user.id;
     const { address, network } = req.body;

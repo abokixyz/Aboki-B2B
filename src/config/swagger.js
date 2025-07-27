@@ -12,9 +12,17 @@ const options = {
         API key generation, token validation, pricing services, offramp operations, and business onramp 
         integration with JWT tokens and secure credential management.
 
+        ## 🚀 NEW: Complete Admin User Management System
+        - **User Verification Workflow**: Complete admin approval system for user accounts
+        - **API Access Control**: Granular control over user API access permissions
+        - **Bulk Operations**: Efficiently manage multiple users with bulk actions
+        - **Dashboard Analytics**: Comprehensive statistics and user insights
+        - **Audit Trail**: Complete history tracking for compliance and security
+        - **Role-based Permissions**: Super admin, admin, and moderator roles with specific capabilities
+
         ## Features
         - **User Authentication**: JWT-based authentication with email verification
-        - **Admin System**: User verification, approval/rejection, and API access management
+        - **Admin System**: Complete user verification, approval/rejection, and API access management
         - **Business Management**: Business registration, token configuration, API key generation
         - **Token Validation**: Multi-chain token validation and metadata retrieval
         - **Pricing Services**: Real-time crypto-to-fiat pricing
@@ -23,16 +31,31 @@ const options = {
         - **Liquidity Integration**: Settlement and liquidity management
 
         ## Admin Verification Flow
-        1. User registers account (pending verification)
-        2. Admin receives notification and reviews user
-        3. Admin approves/rejects with reason
-        4. User receives notification email
-        5. API access enabled for approved users only
+        1. **User Registration**: User registers account (pending verification status)
+        2. **Admin Notification**: Admin receives email notification about new user
+        3. **Admin Review**: Admin reviews user information via dashboard
+        4. **Approval/Rejection**: Admin approves or rejects with detailed reasoning
+        5. **User Notification**: User receives email notification of decision
+        6. **API Access**: API access automatically enabled for approved users only
+        7. **Audit Trail**: All actions logged for compliance and security
 
         ## Authentication Types
         - **User Auth**: JWT Bearer tokens for user operations
-        - **Admin Auth**: JWT Bearer tokens for admin operations
+        - **Admin Auth**: JWT Bearer tokens for admin operations (shorter expiry, enhanced security)
         - **Business Auth**: API Key + Secret for business operations
+
+        ## Admin Roles & Permissions
+        - **Super Admin**: Full system access including admin management and system settings
+        - **Admin**: User verification, business management, API operations, analytics
+        - **Moderator**: User verification and basic analytics only
+
+        ## Security Features
+        - Account lockout after failed attempts
+        - Admin action audit trails
+        - Role-based permission system
+        - IP address logging and optional whitelisting
+        - Rate limiting on admin endpoints
+        - Session token validation
       `,
       contact: {
         name: 'API Support',
@@ -63,7 +86,7 @@ const options = {
           type: 'http',
           scheme: 'bearer',
           bearerFormat: 'JWT',
-          description: 'Enter admin JWT token in the format: Bearer <token>. Used for admin operations.'
+          description: 'Enter admin JWT token in the format: Bearer <token>. Used for admin operations. Shorter expiry (8h) for enhanced security.'
         },
         ApiKeyAuth: {
           type: 'apiKey',
@@ -139,6 +162,100 @@ const options = {
             limit: {
               type: 'integer',
               example: 20
+            }
+          }
+        },
+        AdminUser: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description: 'Admin ID'
+            },
+            email: {
+              type: 'string',
+              format: 'email',
+              description: 'Admin email'
+            },
+            fullName: {
+              type: 'string',
+              description: 'Admin full name'
+            },
+            role: {
+              type: 'string',
+              enum: ['super_admin', 'admin', 'moderator'],
+              description: 'Admin role'
+            },
+            permissions: {
+              type: 'array',
+              items: {
+                type: 'string'
+              },
+              description: 'Admin permissions'
+            },
+            isActive: {
+              type: 'boolean',
+              description: 'Admin account status'
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time'
+            },
+            lastLogin: {
+              type: 'string',
+              format: 'date-time'
+            }
+          }
+        },
+        UserAccount: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description: 'User ID'
+            },
+            email: {
+              type: 'string',
+              format: 'email',
+              description: 'User email'
+            },
+            fullName: {
+              type: 'string',
+              description: 'User full name'
+            },
+            phone: {
+              type: 'string',
+              description: 'User phone number'
+            },
+            isVerified: {
+              type: 'boolean',
+              description: 'Email verification status'
+            },
+            verificationStatus: {
+              type: 'string',
+              enum: ['pending', 'approved', 'rejected', 'suspended'],
+              description: 'Admin verification status'
+            },
+            isApiEnabled: {
+              type: 'boolean',
+              description: 'API access status'
+            },
+            accountStatus: {
+              type: 'string',
+              enum: ['active', 'suspended', 'deactivated'],
+              description: 'Account status'
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time'
+            },
+            lastLogin: {
+              type: 'string',
+              format: 'date-time'
+            },
+            businessCount: {
+              type: 'integer',
+              description: 'Number of businesses owned by user'
             }
           }
         }
@@ -227,12 +344,8 @@ const options = {
         description: 'Admin authentication and account management'
       },
       {
-        name: 'Admin - User Verification',
-        description: 'Admin endpoints for managing user verification and API access'
-      },
-      {
-        name: 'Admin - Management',
-        description: 'Admin system management endpoints'
+        name: 'Admin User Management',
+        description: 'Complete admin system for managing user verification, approval, and API access control'
       },
       {
         name: 'Business Management',
@@ -271,7 +384,7 @@ const options = {
   apis: [
     './src/routes/auth.js',                    // Authentication routes
     './src/routes/adminAuth.js',               // Admin authentication routes
-    './src/routes/admin.js',                   // Admin management routes
+    './src/routes/adminUsers.js',              // NEW: Admin user management routes
     './src/routes/business.js',                // Business management routes  
     './src/routes/businessOnrampRoutes.js',    // Business onramp API routes
     './src/routes/liquidityWebhookRoutes.js',  // Liquidity webhook routes
@@ -295,7 +408,8 @@ try {
   const groups = {
     auth: paths.filter(p => p.includes('/auth') && !p.includes('/admin')).length,
     adminAuth: paths.filter(p => p.includes('/admin/auth')).length,
-    admin: paths.filter(p => p.includes('/admin') && !p.includes('/admin/auth')).length,
+    adminUsers: paths.filter(p => p.includes('/admin/users')).length, // NEW
+    admin: paths.filter(p => p.includes('/admin') && !p.includes('/admin/auth') && !p.includes('/admin/users')).length,
     business: paths.filter(p => p.includes('/business') && !p.includes('/business-onramp')).length,
     businessOnramp: paths.filter(p => p.includes('/business-onramp')).length,
     pricing: paths.filter(p => p.includes('/onramp-price') || p.includes('/offramp-price')).length,
@@ -306,6 +420,7 @@ try {
   };
   
   console.log('📊 Endpoint breakdown:', groups);
+  console.log(`🆕 Admin user management endpoints: ${groups.adminUsers}`);
   
 } catch (error) {
   console.error('❌ Error generating Swagger specs:', error.message);
@@ -430,6 +545,16 @@ const swaggerSetup = (app) => {
         .swagger-ui .opblock-tag[data-tag*="Admin"] .opblock-tag-name {
           color: white;
         }
+        /* Admin User Management special styling */
+        .swagger-ui .opblock-tag[data-tag="Admin User Management"] {
+          background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+          color: white;
+          font-weight: bold;
+        }
+        .swagger-ui .opblock-tag[data-tag="Admin User Management"]:before {
+          content: "🆕 ";
+          font-size: 1.2em;
+        }
         /* Business section styling */
         .swagger-ui .opblock-tag[data-tag*="Business"] {
           background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
@@ -437,6 +562,11 @@ const swaggerSetup = (app) => {
         }
         .swagger-ui .opblock-tag[data-tag*="Business"] .opblock-tag-name {
           color: white;
+        }
+        /* New feature highlight */
+        .swagger-ui .info .description h2:contains("NEW") {
+          color: #ff6b6b;
+          font-weight: bold;
         }
       `,
       customSiteTitle: "Complete Business, Admin & Onramp API Documentation",
@@ -451,12 +581,11 @@ const swaggerSetup = (app) => {
         supportedSubmitMethods: ['get', 'post', 'put', 'delete', 'patch'],
         validatorUrl: null,
         tagsSorter: (a, b) => {
-          // Custom tag ordering: Auth, Admin, Business, then others
+          // Custom tag ordering: Auth, Admin (with new user management), Business, then others
           const order = [
             'Authentication',
             'Admin Authentication', 
-            'Admin - User Verification',
-            'Admin - Management',
+            'Admin User Management', // NEW - prioritized
             'Business Management',
             'Business Token Management',
             'Business Onramp',
@@ -488,7 +617,8 @@ const swaggerSetup = (app) => {
       const endpointGroups = {
         authentication: paths.filter(p => p.includes('/auth') && !p.includes('/admin')).length,
         adminAuthentication: paths.filter(p => p.includes('/admin/auth')).length,
-        adminManagement: paths.filter(p => p.includes('/admin') && !p.includes('/admin/auth')).length,
+        adminUserManagement: paths.filter(p => p.includes('/admin/users')).length, // NEW
+        adminManagement: paths.filter(p => p.includes('/admin') && !p.includes('/admin/auth') && !p.includes('/admin/users')).length,
         business: paths.filter(p => p.includes('/business') && !p.includes('/business-onramp')).length,
         businessOnramp: paths.filter(p => p.includes('/business-onramp')).length,
         pricing: paths.filter(p => p.includes('/onramp-price') || p.includes('/offramp-price')).length,
@@ -505,11 +635,12 @@ const swaggerSetup = (app) => {
         endpointGroups,
         features: [
           'User Authentication',
-          'Admin User Verification System', // NEW
-          'Admin Dashboard and Management', // NEW
-          'User Account Approval/Rejection', // NEW
-          'API Access Control', // NEW
-          'Verification History Tracking', // NEW
+          'Admin User Verification System', // available
+          'Admin Dashboard and Management', // available
+          'User Account Approval/Rejection', // available
+          'API Access Control', // available
+          'Verification History Tracking', // available
+          'Bulk User Operations', // available
           'Business Management', 
           'Business Onramp API',
           'Token Validation',
@@ -519,15 +650,20 @@ const swaggerSetup = (app) => {
           'API Key Management'
         ],
         newFeatures: {
-          adminSystem: {
-            description: 'Complete admin system for user verification',
-            endpoints: endpointGroups.adminAuthentication + endpointGroups.adminManagement,
+          adminUserManagement: {
+            description: 'Complete admin system for user verification and management',
+            endpoints: endpointGroups.adminUserManagement,
+            status: 'FULLY IMPLEMENTED',
             capabilities: [
-              'User verification and approval',
-              'API access management',
-              'Admin dashboard with statistics',
-              'Bulk user operations',
-              'Verification history tracking',
+              'User verification workflow (approve/reject)',
+              'API access management and control',
+              'Bulk user operations for efficiency',
+              'Advanced user filtering and search',
+              'Dashboard analytics and statistics',
+              'Verification history and audit trail',
+              'Account status management',
+              'Force password reset functionality',
+              'Email notifications for account changes',
               'Role-based admin permissions'
             ]
           }
@@ -540,48 +676,196 @@ const swaggerSetup = (app) => {
       });
     });
 
-    // Admin-specific documentation endpoint
+    // Admin-specific documentation endpoint (ENHANCED)
     app.get('/api-docs/admin', (req, res) => {
-      const adminPaths = Object.keys(specs.paths || {}).filter(p => p.includes('/admin'));
-      const adminEndpoints = adminPaths.map(path => ({
+      const adminAuthPaths = Object.keys(specs.paths || {}).filter(p => p.includes('/admin/auth'));
+      const adminUserPaths = Object.keys(specs.paths || {}).filter(p => p.includes('/admin/users'));
+      const allAdminPaths = [...adminAuthPaths, ...adminUserPaths];
+      
+      const adminEndpoints = allAdminPaths.map(path => ({
         path,
-        methods: Object.keys(specs.paths[path] || {})
+        methods: Object.keys(specs.paths[path] || {}),
+        category: path.includes('/admin/auth') ? 'authentication' : 'user_management'
       }));
 
       res.json({
         success: true,
-        message: 'Admin API documentation',
-        totalAdminEndpoints: adminPaths.length,
+        message: 'Complete Admin API documentation',
+        totalAdminEndpoints: allAdminPaths.length,
+        endpointBreakdown: {
+          authentication: adminAuthPaths.length,
+          userManagement: adminUserPaths.length
+        },
         endpoints: adminEndpoints,
         adminSystem: {
+          status: 'FULLY IMPLEMENTED AND ACTIVE',
           authentication: {
-            description: 'JWT-based admin authentication',
+            description: 'JWT-based admin authentication with enhanced security',
             roles: ['super_admin', 'admin', 'moderator'],
-            tokenExpiry: '8 hours (shorter than user tokens)'
+            tokenExpiry: '8 hours (shorter than user tokens for security)',
+            security: [
+              'Account lockout after 5 failed attempts',
+              'IP address logging and optional whitelisting',
+              'Session token validation',
+              'Role-based permission system'
+            ]
           },
-          userVerification: {
-            description: 'Admin verification of user accounts',
-            flow: [
-              '1. User registers (pending status)',
-              '2. Admin receives notification',
-              '3. Admin reviews and approves/rejects',
-              '4. User receives notification',
-              '5. API access enabled for approved users'
+          userManagement: {
+            description: 'Complete user verification and management system',
+            capabilities: [
+              'User account verification workflow',
+              'API access control and management',
+              'Bulk operations for multiple users',
+              'Advanced filtering and search',
+              'Dashboard analytics and statistics',
+              'Verification history tracking',
+              'Account status management',
+              'Force password reset',
+              'Email notifications'
             ],
-            actions: ['approve', 'reject', 'suspend', 'enable_api', 'disable_api']
+            verificationFlow: [
+              '1. User registers account (pending status)',
+              '2. Admin receives notification email',
+              '3. Admin reviews user via dashboard',
+              '4. Admin approves/rejects with reason',
+              '5. User receives notification email',
+              '6. API access enabled for approved users',
+              '7. Complete audit trail maintained'
+            ],
+            bulkOperations: [
+              'Bulk approve users',
+              'Bulk reject users', 
+              'Bulk suspend accounts',
+              'Bulk activate accounts',
+              'Bulk enable API access',
+              'Bulk disable API access'
+            ],
+            analytics: [
+              'User verification statistics',
+              'Account status breakdown',
+              'API access metrics',
+              'Growth trends and registration analytics',
+              'Email verification rates',
+              'Admin activity monitoring'
+            ]
           },
           permissions: {
-            super_admin: 'Full system access including admin management',
-            admin: 'User verification, business management, API operations',
-            moderator: 'User verification and basic analytics only'
+            super_admin: [
+              'All user management functions',
+              'Admin account management', 
+              'System settings access',
+              'Full analytics access',
+              'Bulk operations',
+              'Admin creation and management'
+            ],
+            admin: [
+              'User verification and management',
+              'Business verification and management',
+              'API key management',
+              'Analytics viewing',
+              'Bulk operations',
+              'User password reset'
+            ],
+            moderator: [
+              'User verification only',
+              'Basic analytics viewing',
+              'Limited user management'
+            ]
           }
         },
         security: [
-          'Account lockout after failed attempts',
+          'Enhanced JWT token security',
+          'Account lockout protection',
           'Admin action audit trails',
           'Role-based permissions',
-          'IP address logging'
-        ]
+          'IP address logging',
+          'Rate limiting on admin endpoints',
+          'Session management and invalidation'
+        ],
+        integrationGuide: {
+          gettingStarted: [
+            '1. Create admin account via super admin',
+            '2. Login to get admin JWT token',
+            '3. Use token for all admin operations',
+            '4. Review pending user verifications',
+            '5. Approve/reject users as needed',
+            '6. Monitor system via analytics endpoints'
+          ],
+          bestPractices: [
+            'Use appropriate admin roles for team members',
+            'Regularly review admin activity logs',
+            'Enable IP whitelisting for sensitive operations',
+            'Use bulk operations for efficiency',
+            'Monitor user verification metrics',
+            'Set up email notifications for admin actions'
+          ]
+        }
+      });
+    });
+
+    // NEW: Admin user management specific documentation
+    app.get('/api-docs/admin/users', (req, res) => {
+      const adminUserPaths = Object.keys(specs.paths || {}).filter(p => p.includes('/admin/users'));
+      
+      res.json({
+        success: true,
+        message: 'Admin User Management API Documentation',
+        description: 'Complete system for managing user verification, approval, and API access control',
+        totalEndpoints: adminUserPaths.length,
+        endpoints: adminUserPaths.map(path => ({
+          path,
+          methods: Object.keys(specs.paths[path] || {}),
+          description: getEndpointDescription(path)
+        })),
+        workflows: {
+          userVerification: {
+            description: 'Complete user verification workflow',
+            steps: [
+              'GET /admin/users/pending-verification - Get users awaiting review',
+              'GET /admin/users/{userId} - Review user details',
+              'POST /admin/users/{userId}/verify - Approve or reject user',
+              'GET /admin/users/{userId}/history - View verification history'
+            ]
+          },
+          userManagement: {
+            description: 'Ongoing user account management',
+            steps: [
+              'GET /admin/users - List and filter all users',
+              'PUT /admin/users/{userId}/manage - Update account status',
+              'PUT /admin/users/{userId}/api-access - Control API access',
+              'POST /admin/users/{userId}/reset-password - Reset user password'
+            ]
+          },
+          bulkOperations: {
+            description: 'Efficient bulk user management',
+            steps: [
+              'GET /admin/users - Identify users for bulk action',
+              'POST /admin/users/bulk-actions - Execute bulk operation',
+              'GET /admin/users/stats - Monitor bulk operation impact'
+            ]
+          },
+          analytics: {
+            description: 'User analytics and insights',
+            steps: [
+              'GET /admin/users/stats - Get comprehensive statistics',
+              'GET /admin/users?verificationStatus=pending - Monitor pending users',
+              'GET /admin/users/{userId}/history - Review individual user history'
+            ]
+          }
+        },
+        permissionRequirements: {
+          user_verification: ['GET pending-verification', 'POST verify', 'GET history'],
+          user_management: ['GET users', 'PUT manage', 'PUT api-access', 'POST reset-password'],
+          analytics_view: ['GET stats'],
+          bulk_operations: ['POST bulk-actions']
+        },
+        responseExamples: {
+          userList: 'Paginated list of users with filtering options',
+          userDetails: 'Complete user profile with verification history',
+          verificationAction: 'Confirmation of approval/rejection with audit trail',
+          bulkOperations: 'Progress report with success/failure breakdown',
+          statistics: 'Comprehensive analytics and metrics'
+        }
       });
     });
 
@@ -589,6 +873,7 @@ const swaggerSetup = (app) => {
     console.log(`📄 API JSON available at: http://localhost:${process.env.PORT || 5002}/api-docs.json`);
     console.log(`🔍 Swagger health check: http://localhost:${process.env.PORT || 5002}/api-docs/health`);
     console.log(`👨‍💼 Admin docs: http://localhost:${process.env.PORT || 5002}/api-docs/admin`);
+    console.log(`🆕 Admin user management docs: http://localhost:${process.env.PORT || 5002}/api-docs/admin/users`);
     
   } catch (error) {
     console.error('❌ Error setting up Swagger:', error.message);
@@ -603,8 +888,8 @@ const swaggerSetup = (app) => {
         availableEndpoints: {
           health: '/api/v1/health',
           auth: '/api/v1/auth/*',
-          adminAuth: '/api/v1/admin/auth/*', // NEW
-          admin: '/api/v1/admin/*', // NEW
+          adminAuth: '/api/v1/admin/auth/*',
+          adminUsers: '/api/v1/admin/users/*', // NEW
           business: '/api/v1/business/*',
           businessOnramp: '/api/v1/business-onramp/*',
           pricing: '/api/v1/onramp-price, /api/v1/offramp-price',
@@ -638,8 +923,34 @@ const swaggerSetup = (app) => {
         error: error.message
       });
     });
+
+    app.get('/api-docs/admin/users', (req, res) => {
+      res.status(500).json({
+        success: false,
+        message: 'Admin user management documentation failed to load',
+        error: error.message
+      });
+    });
   }
 };
+
+// Helper function to get endpoint descriptions
+function getEndpointDescription(path) {
+  const descriptions = {
+    '/api/v1/admin/users': 'List all users with advanced filtering and pagination',
+    '/api/v1/admin/users/{userId}': 'Get detailed user information including verification history',
+    '/api/v1/admin/users/pending-verification': 'Get users awaiting admin verification',
+    '/api/v1/admin/users/{userId}/verify': 'Approve or reject user verification for API access',
+    '/api/v1/admin/users/{userId}/manage': 'Manage user account status and settings',
+    '/api/v1/admin/users/{userId}/api-access': 'Toggle user API access permissions',
+    '/api/v1/admin/users/{userId}/reset-password': 'Force reset user password (admin only)',
+    '/api/v1/admin/users/stats': 'Get comprehensive user statistics for dashboard',
+    '/api/v1/admin/users/bulk-actions': 'Perform bulk operations on multiple users',
+    '/api/v1/admin/users/{userId}/history': 'Get complete user action history and audit trail'
+  };
+  
+  return descriptions[path] || 'Admin user management endpoint';
+}
 
 module.exports = {
   swaggerSetup,

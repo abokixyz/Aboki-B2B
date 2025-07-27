@@ -1,3 +1,5 @@
+// controllers/businessController.js - UPDATED WITH STRICTER ADMIN APPROVAL CHECK
+
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const { User, Business, ApiKey } = require('../models');
@@ -44,13 +46,13 @@ class BusinessController {
     business.supportedTokensUpdatedAt = new Date();
   }
 
-  // Middleware to check if user account is activated
+  // UPDATED: Stricter middleware to check if user account is activated
   static async checkAccountActivation(req, res, next) {
     try {
       const userId = req.user.id;
       
       // Find user and check activation status
-      const user = await User.findById(userId).select('isAccountActivated accountStatus activatedAt activatedBy');
+      const user = await User.findById(userId).select('verificationStatus isApiEnabled accountStatus isVerified email fullName');
       
       if (!user) {
         return res.status(404).json({
@@ -59,23 +61,86 @@ class BusinessController {
         });
       }
 
-      // Check if account is activated
-      if (!user.isAccountActivated || user.accountStatus !== 'active') {
+      console.log(`🔍 Account activation check for user: ${user.email}`, {
+        isVerified: user.isVerified,
+        verificationStatus: user.verificationStatus,
+        isApiEnabled: user.isApiEnabled,
+        accountStatus: user.accountStatus
+      });
+
+      // Check if user email is verified FIRST
+      if (!user.isVerified) {
+        console.log(`❌ Email not verified: ${user.email}`);
         return res.status(403).json({
           success: false,
-          message: 'Your account is pending admin activation. Please wait for admin approval before you can create or manage businesses.',
-          accountStatus: user.accountStatus || 'pending_activation',
-          registeredAt: user.createdAt,
-          note: 'Contact support if your account has been pending for more than 48 hours'
+          message: 'Please verify your email address first before creating a business.',
+          emailVerified: false,
+          verificationStatus: user.verificationStatus || 'pending',
+          isApiEnabled: false,
+          step: 1,
+          nextStep: 'Check your email and click the verification link',
+          requiresAdminApproval: true
         });
       }
 
-      // Add user activation info to request for logging
-      req.userActivationInfo = {
-        isActivated: user.isAccountActivated,
-        status: user.accountStatus,
-        activatedAt: user.activatedAt,
-        activatedBy: user.activatedBy
+      // STRICT CHECK: Verify admin approval status
+      const verificationStatus = user.verificationStatus || 'pending';
+      const isApiEnabled = user.isApiEnabled || false;
+
+      if (verificationStatus !== 'approved') {
+        console.log(`❌ Admin approval pending: ${user.email} - status: ${verificationStatus}`);
+        return res.status(403).json({
+          success: false,
+          message: 'Your account is pending admin approval. Please wait for admin verification before creating a business.',
+          verificationStatus,
+          isApiEnabled: false,
+          emailVerified: user.isVerified,
+          step: 2,
+          currentStatus: verificationStatus,
+          nextStep: 'Wait for admin verification (1-2 business days)',
+          note: 'Admin verification is required for business creation and API access',
+          contactSupport: 'If this is taking longer than expected, please contact support'
+        });
+      }
+
+      if (!isApiEnabled) {
+        console.log(`❌ API access not enabled: ${user.email}`);
+        return res.status(403).json({
+          success: false,
+          message: 'Your API access is not enabled. Please contact admin for API access.',
+          verificationStatus: 'approved',
+          isApiEnabled: false,
+          emailVerified: user.isVerified,
+          step: 3,
+          nextStep: 'Contact admin to enable API access',
+          note: 'API access must be enabled by admin for business operations'
+        });
+      }
+
+      // Check account status
+      const accountStatus = user.accountStatus || 'active';
+      if (accountStatus !== 'active') {
+        console.log(`❌ Account not active: ${user.email} - status: ${accountStatus}`);
+        return res.status(403).json({
+          success: false,
+          message: `Your account status is ${accountStatus}. Contact support for assistance.`,
+          accountStatus,
+          verificationStatus,
+          isApiEnabled,
+          emailVerified: user.isVerified
+        });
+      }
+
+      console.log(`✅ Account activation check passed: ${user.email}`);
+
+      // Add user verification info to request for logging
+      req.userVerificationInfo = {
+        isEmailVerified: user.isVerified,
+        verificationStatus: user.verificationStatus,
+        isApiEnabled: user.isApiEnabled,
+        accountStatus,
+        userId: user._id,
+        email: user.email
       };
 
       next();
@@ -83,12 +148,124 @@ class BusinessController {
       console.error('Account activation check error:', error);
       res.status(500).json({
         success: false,
-        message: 'Error checking account activation status'
+        message: 'Error checking account verification status',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
 
-  // Create a new business (with account activation check)
+  // Generate API keys for business
+  static async generateApiKeys(businessId, userId, approvedBy = null) {
+    try {
+      // Generate public key (visible identifier)
+      const publicKey = `pk_live_${crypto.randomBytes(16).toString('hex')}`;
+      
+      // Generate client key (for frontend/client-side use)
+      const clientKey = `ck_${crypto.randomBytes(12).toString('hex')}`;
+      
+      // Generate secret key (for server-side use)
+      const secretKey = `***REMOVED***${crypto.randomBytes(24).toString('hex')}`;
+      
+      // Hash the secret key for storage
+      const saltRounds = 12;
+      const hashedSecretKey = await bcrypt.hash(secretKey, saltRounds);
+
+      // Create API key record with all required fields
+      const apiKeyRecord = new ApiKey({
+        businessId,
+        userId,
+        publicKey,
+        clientKey,
+        secretKey: hashedSecretKey, // Store hashed version
+        permissions: ['read', 'write', 'validate'], // Default permissions
+        isActive: true,
+        isApproved: true, // Auto-approve for business creation
+        approvedBy: approvedBy || userId,
+        approvedAt: new Date(),
+        createdAt: new Date(),
+        lastUsedAt: null
+      });
+
+      await apiKeyRecord.save();
+
+      return {
+        publicKey,
+        clientKey,
+        secretKey // Return plain text version (only time it's available)
+      };
+
+    } catch (error) {
+      console.error('Error generating API keys:', error);
+      throw error;
+    }
+  }
+
+  // Helper method to add default tokens to existing businesses
+  static async addDefaultTokensToExistingBusiness(business) {
+    try {
+      // Initialize if not exists
+      if (!business.supportedTokens) {
+        business.supportedTokens = { base: [], solana: [], ethereum: [] };
+      }
+      if (!business.feeConfiguration) {
+        business.feeConfiguration = { base: [], solana: [], ethereum: [] };
+      }
+
+      let tokensAdded = 0;
+
+      // Add missing default tokens for each network
+      Object.keys(DEFAULT_TOKENS).forEach(network => {
+        if (!business.supportedTokens[network]) {
+          business.supportedTokens[network] = [];
+        }
+        if (!business.feeConfiguration[network]) {
+          business.feeConfiguration[network] = [];
+        }
+
+        DEFAULT_TOKENS[network].forEach(tokenTemplate => {
+          // Check if token already exists
+          const existingToken = business.supportedTokens[network].find(
+            t => t.contractAddress.toLowerCase() === tokenTemplate.contractAddress.toLowerCase()
+          );
+
+          if (!existingToken) {
+            // Add to supported tokens
+            const token = {
+              ...tokenTemplate,
+              addedAt: new Date(),
+              metadata: {}
+            };
+            business.supportedTokens[network].push(token);
+
+            // Add default fee configuration (0% fee)
+            business.feeConfiguration[network].push({
+              contractAddress: tokenTemplate.contractAddress,
+              symbol: tokenTemplate.symbol,
+              feePercentage: 0, // Default fee is 0%
+              isActive: true,
+              isDefault: true,
+              updatedAt: new Date()
+            });
+
+            tokensAdded++;
+          }
+        });
+      });
+
+      if (tokensAdded > 0) {
+        business.supportedTokensUpdatedAt = new Date();
+        business.updatedAt = new Date();
+        await business.save();
+      }
+
+      return tokensAdded;
+    } catch (error) {
+      console.error('Error adding default tokens to existing business:', error);
+      throw error;
+    }
+  }
+
+  // Create a new business (with STRICT account activation check)
   async createBusiness(req, res) {
     try {
       const userId = req.user.id;
@@ -106,9 +283,15 @@ class BusinessController {
         logo
       } = req.body;
 
-      // Account activation is already checked by middleware
-      // Log the activation info for audit
-      console.log(`Business creation by activated user: ${userId}`, req.userActivationInfo);
+      // Account verification is already checked by middleware
+      // Log the verification info for audit trail
+      console.log(`🏢 Business creation attempt by verified user:`, {
+        userId,
+        email: req.userVerificationInfo.email,
+        verificationStatus: req.userVerificationInfo.verificationStatus,
+        isApiEnabled: req.userVerificationInfo.isApiEnabled,
+        businessName
+      });
 
       // Validation
       if (!businessName || !businessType || !industry || !country) {
@@ -230,10 +413,18 @@ class BusinessController {
       await newBusiness.save();
 
       // Generate API keys for the business
-      const apiKeys = await BusinessController.generateApiKeys(newBusiness._id, userId);
+      const apiKeys = await BusinessController.generateApiKeys(newBusiness._id, userId, userId);
 
       // Get default token counts
       const defaultTokenCounts = getDefaultTokenCount();
+
+      console.log(`✅ Business created successfully:`, {
+        businessId: newBusiness.businessId,
+        businessName: newBusiness.businessName,
+        ownerId: userId,
+        ownerEmail: req.userVerificationInfo.email,
+        defaultTokensAdded: defaultTokenCounts.total
+      });
 
       // Remove sensitive fields from response
       const businessResponse = {
@@ -279,115 +470,7 @@ class BusinessController {
     }
   }
 
-  // Generate API keys for business - Made static
-  static async generateApiKeys(businessId, userId) {
-    try {
-      // Generate public key (visible identifier)
-      const publicKey = `pk_live_${crypto.randomBytes(16).toString('hex')}`;
-      
-      // Generate client key (for frontend/client-side use)
-      const clientKey = `ck_${crypto.randomBytes(12).toString('hex')}`;
-      
-      // Generate secret key (for server-side use)
-      const secretKey = `***REMOVED***${crypto.randomBytes(24).toString('hex')}`;
-      
-      // Hash the secret key for storage
-      const saltRounds = 12;
-      const hashedSecretKey = await bcrypt.hash(secretKey, saltRounds);
-
-      // Create API key record
-      const apiKeyRecord = new ApiKey({
-        businessId,
-        userId,
-        publicKey,
-        clientKey,
-        secretKey: hashedSecretKey, // Store hashed version
-        permissions: ['read', 'write', 'validate'], // Default permissions
-        isActive: true,
-        createdAt: new Date(),
-        lastUsedAt: null
-      });
-
-      await apiKeyRecord.save();
-
-      return {
-        publicKey,
-        clientKey,
-        secretKey // Return plain text version (only time it's available)
-      };
-
-    } catch (error) {
-      console.error('Error generating API keys:', error);
-      throw error;
-    }
-  }
-
-  // Helper method to add default tokens to existing businesses
-  static async addDefaultTokensToExistingBusiness(business) {
-    try {
-      // Initialize if not exists
-      if (!business.supportedTokens) {
-        business.supportedTokens = { base: [], solana: [], ethereum: [] };
-      }
-      if (!business.feeConfiguration) {
-        business.feeConfiguration = { base: [], solana: [], ethereum: [] };
-      }
-
-      let tokensAdded = 0;
-
-      // Add missing default tokens for each network
-      Object.keys(DEFAULT_TOKENS).forEach(network => {
-        if (!business.supportedTokens[network]) {
-          business.supportedTokens[network] = [];
-        }
-        if (!business.feeConfiguration[network]) {
-          business.feeConfiguration[network] = [];
-        }
-
-        DEFAULT_TOKENS[network].forEach(tokenTemplate => {
-          // Check if token already exists
-          const existingToken = business.supportedTokens[network].find(
-            t => t.contractAddress.toLowerCase() === tokenTemplate.contractAddress.toLowerCase()
-          );
-
-          if (!existingToken) {
-            // Add to supported tokens
-            const token = {
-              ...tokenTemplate,
-              addedAt: new Date(),
-              metadata: {}
-            };
-            business.supportedTokens[network].push(token);
-
-            // Add default fee configuration (0% fee)
-            business.feeConfiguration[network].push({
-              contractAddress: tokenTemplate.contractAddress,
-              symbol: tokenTemplate.symbol,
-              feePercentage: 0, // Default fee is 0%
-              isActive: true,
-              isDefault: true,
-              updatedAt: new Date()
-            });
-
-            tokensAdded++;
-          }
-        });
-      });
-
-      if (tokensAdded > 0) {
-        business.supportedTokensUpdatedAt = new Date();
-        business.updatedAt = new Date();
-        await business.save();
-      }
-
-      return tokensAdded;
-    } catch (error) {
-      console.error('Error adding default tokens to existing business:', error);
-      throw error;
-    }
-  }
-
-  // Get business profile (with account activation check)
+  // Rest of the methods remain the same...
   async getBusinessProfile(req, res) {
     try {
       const userId = req.user.id;
@@ -443,7 +526,7 @@ class BusinessController {
     }
   }
 
-  // Update business profile (with account activation check)
+  // All other methods remain unchanged - just using the same verification flow...
   async updateBusiness(req, res) {
     try {
       const userId = req.user.id;
@@ -457,7 +540,7 @@ class BusinessController {
 
       const business = await Business.findOne({ 
         ownerId: userId,
-        status: { $ne: 'deleted' } // Exclude soft-deleted businesses
+        status: { $ne: 'deleted' }
       });
       
       if (!business) {
@@ -502,14 +585,13 @@ class BusinessController {
     }
   }
 
-  // Get verification status (with account activation check)
   async getVerificationStatus(req, res) {
     try {
       const userId = req.user.id;
 
       const business = await Business.findOne({ 
         ownerId: userId,
-        status: { $ne: 'deleted' } // Exclude soft-deleted businesses
+        status: { $ne: 'deleted' }
       }).select('businessId businessName status verificationDocuments createdAt');
 
       if (!business) {
@@ -540,119 +622,13 @@ class BusinessController {
     }
   }
 
-  // Delete business (soft delete) (with account activation check)
-  async deleteBusiness(req, res) {
-    try {
-      const userId = req.user.id;
-      const { confirmDelete } = req.body;
-
-      if (!confirmDelete) {
-        return res.status(400).json({
-          success: false,
-          message: 'Please confirm deletion by setting confirmDelete to true'
-        });
-      }
-
-      const business = await Business.findOne({ 
-        ownerId: userId,
-        status: { $ne: 'deleted' } // Only find active businesses
-      });
-      
-      if (!business) {
-        return res.status(404).json({
-          success: false,
-          message: 'No active business found to delete'
-        });
-      }
-
-      // Deactivate API keys
-      await ApiKey.updateMany(
-        { businessId: business._id },
-        { isActive: false, updatedAt: new Date() }
-      );
-
-      // Soft delete - update status instead of actually deleting
-      business.status = 'deleted';
-      business.deletedAt = new Date();
-      business.updatedAt = new Date();
-      await business.save();
-
-      res.json({
-        success: true,
-        message: 'Business and associated API keys deleted successfully. You can now create a new business.',
-        data: {
-          deletedBusinessId: business.businessId,
-          deletedBusinessName: business.businessName,
-          deletedAt: business.deletedAt,
-          note: 'You can create a new business anytime now'
-        }
-      });
-
-    } catch (error) {
-      console.error('Delete business error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Internal server error during business deletion',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-  }
-
-  // Regenerate API keys (with account activation check)
-  async regenerateApiKeys(req, res) {
-    try {
-      const userId = req.user.id;
-
-      const business = await Business.findOne({ 
-        ownerId: userId,
-        status: { $ne: 'deleted' } // Exclude soft-deleted businesses
-      });
-      
-      if (!business) {
-        return res.status(404).json({
-          success: false,
-          message: 'No active business found'
-        });
-      }
-
-      // Deactivate old API keys
-      await ApiKey.updateMany(
-        { businessId: business._id },
-        { isActive: false, updatedAt: new Date() }
-      );
-
-      // Generate new API keys
-      const newApiKeys = await BusinessController.generateApiKeys(business._id, userId);
-
-      res.json({
-        success: true,
-        message: 'API keys regenerated successfully',
-        data: {
-          publicKey: newApiKeys.publicKey,
-          clientKey: newApiKeys.clientKey,
-          secretKey: newApiKeys.secretKey,
-          warning: 'Store these credentials securely. The secret key will not be shown again.'
-        }
-      });
-
-    } catch (error) {
-      console.error('Regenerate API keys error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Internal server error during API key regeneration',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-  }
-
-  // Get API key information (with account activation check)
   async getApiKeyInfo(req, res) {
     try {
       const userId = req.user.id;
 
       const business = await Business.findOne({ 
         ownerId: userId,
-        status: { $ne: 'deleted' } // Exclude soft-deleted businesses
+        status: { $ne: 'deleted' }
       });
       
       if (!business) {
@@ -695,12 +671,117 @@ class BusinessController {
     }
   }
 
+  async regenerateApiKeys(req, res) {
+    try {
+      const userId = req.user.id;
+
+      const business = await Business.findOne({ 
+        ownerId: userId,
+        status: { $ne: 'deleted' }
+      });
+      
+      if (!business) {
+        return res.status(404).json({
+          success: false,
+          message: 'No active business found'
+        });
+      }
+
+      // Deactivate old API keys
+      await ApiKey.updateMany(
+        { businessId: business._id },
+        { isActive: false, updatedAt: new Date() }
+      );
+
+      // Generate new API keys
+      const newApiKeys = await BusinessController.generateApiKeys(business._id, userId, userId);
+
+      console.log(`🔑 API keys regenerated for business ${business.businessId} by user ${userId}`);
+
+      res.json({
+        success: true,
+        message: 'API keys regenerated successfully',
+        data: {
+          publicKey: newApiKeys.publicKey,
+          clientKey: newApiKeys.clientKey,
+          secretKey: newApiKeys.secretKey,
+          warning: 'Store these credentials securely. The secret key will not be shown again.'
+        }
+      });
+
+    } catch (error) {
+      console.error('Regenerate API keys error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error during API key regeneration',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  async deleteBusiness(req, res) {
+    try {
+      const userId = req.user.id;
+      const { confirmDelete } = req.body;
+
+      if (!confirmDelete) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please confirm deletion by setting confirmDelete to true'
+        });
+      }
+
+      const business = await Business.findOne({ 
+        ownerId: userId,
+        status: { $ne: 'deleted' }
+      });
+      
+      if (!business) {
+        return res.status(404).json({
+          success: false,
+          message: 'No active business found to delete'
+        });
+      }
+
+      // Deactivate API keys
+      await ApiKey.updateMany(
+        { businessId: business._id },
+        { isActive: false, updatedAt: new Date() }
+      );
+
+      // Soft delete - update status instead of actually deleting
+      business.status = 'deleted';
+      business.deletedAt = new Date();
+      business.updatedAt = new Date();
+      await business.save();
+
+      res.json({
+        success: true,
+        message: 'Business and associated API keys deleted successfully. You can now create a new business.',
+        data: {
+          deletedBusinessId: business.businessId,
+          deletedBusinessName: business.businessName,
+          deletedAt: business.deletedAt,
+          note: 'You can create a new business anytime now'
+        }
+      });
+
+    } catch (error) {
+      console.error('Delete business error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error during business deletion',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
   // Check account activation status (for users to check their status)
   async checkActivationStatus(req, res) {
     try {
       const userId = req.user.id;
       
-      const user = await User.findById(userId).select('isAccountActivated accountStatus activatedAt activatedBy createdAt email username');
+      const user = await User.findById(userId).select('verificationStatus isApiEnabled accountStatus isVerified createdAt email fullName');
       
       if (!user) {
         return res.status(404).json({
@@ -709,23 +790,33 @@ class BusinessController {
         });
       }
 
+      const canCreateBusiness = user.isVerified && 
+                               user.verificationStatus === 'approved' && 
+                               user.isApiEnabled && 
+                               (user.accountStatus || 'active') === 'active';
+
       res.json({
         success: true,
         data: {
           userId,
           email: user.email,
-          username: user.username,
-          isAccountActivated: user.isAccountActivated || false,
-          accountStatus: user.accountStatus || 'pending_activation',
+          fullName: user.fullName,
+          isEmailVerified: user.isVerified || false,
+          verificationStatus: user.verificationStatus || 'pending',
+          isApiEnabled: user.isApiEnabled || false,
+          accountStatus: user.accountStatus || 'active',
           registeredAt: user.createdAt,
-          activatedAt: user.activatedAt,
-          activatedBy: user.activatedBy,
-          message: user.isAccountActivated 
-            ? 'Your account is activated and you can create businesses'
-            : 'Your account is pending admin activation. Please wait for approval.',
-          nextSteps: user.isAccountActivated 
-            ? 'You can now create and manage your business'
-            : 'Contact support if your account has been pending for more than 48 hours'
+          canCreateBusiness,
+          message: canCreateBusiness
+            ? 'Your account is fully verified and you can create businesses'
+            : 'Your account requires additional verification steps',
+          nextSteps: this.getNextSteps(user),
+          requirements: {
+            emailVerified: user.isVerified || false,
+            adminApproved: user.verificationStatus === 'approved',
+            apiEnabled: user.isApiEnabled || false,
+            accountActive: (user.accountStatus || 'active') === 'active'
+          }
         }
       });
 
@@ -736,6 +827,27 @@ class BusinessController {
         message: 'Error checking activation status'
       });
     }
+  }
+
+  // Helper method to get next steps for user
+  getNextSteps(user) {
+    if (!user.isVerified) {
+      return 'Please verify your email address by clicking the link sent to your email';
+    }
+    
+    if (user.verificationStatus !== 'approved') {
+      return 'Your account is pending admin approval. Please wait for verification (1-2 business days)';
+    }
+
+    if (!user.isApiEnabled) {
+      return 'Your API access needs to be enabled by admin. Contact support if this is taking too long.';
+    }
+    
+    if ((user.accountStatus || 'active') !== 'active') {
+      return 'Your account status is not active. Please contact support for assistance';
+    }
+    
+    return 'You can now create and manage your business';
   }
 
   // Get default tokens configuration (static method for reference)

@@ -4,6 +4,86 @@ const crypto = require('crypto');
 const { User } = require('../models');
 const EmailService = require('../services/EmailService'); // Import the email service
 
+// Helper function to get verification info for login
+const getVerificationInfo = (user) => {
+  const info = {
+    requiresAttention: false,
+    message: null,
+    status: user.verificationStatus || 'pending',
+    apiEnabled: user.isApiEnabled || false,
+    nextSteps: null
+  };
+
+  if (!user.isVerified) {
+    info.requiresAttention = true;
+    info.message = 'Please verify your email address';
+    info.nextSteps = 'Check your email and click the verification link';
+  } else if (user.verificationStatus === 'pending') {
+    info.requiresAttention = true;
+    info.message = 'Your account is pending admin verification for API access';
+    info.nextSteps = 'Please wait for admin review (1-2 business days)';
+  } else if (user.verificationStatus === 'rejected') {
+    info.requiresAttention = true;
+    info.message = 'Your account verification was rejected';
+    info.nextSteps = 'Contact support for more information';
+    info.rejectionReason = user.rejectionReason;
+  } else if (user.verificationStatus === 'approved' && !user.isApiEnabled) {
+    info.requiresAttention = true;
+    info.message = 'Your account is approved but API access is disabled';
+    info.nextSteps = 'Contact support to enable API access';
+  }
+
+  return info;
+};
+
+// Helper function to get detailed verification info
+const getDetailedVerificationInfo = (user) => {
+  const info = {};
+
+  switch (user.verificationStatus) {
+    case 'pending':
+      info.message = 'Your account is pending admin verification';
+      info.nextSteps = 'Please wait for admin review (1-2 business days)';
+      info.estimatedTime = '1-2 business days';
+      break;
+    case 'approved':
+      if (user.isApiEnabled) {
+        info.message = 'Your account is verified and API access is enabled';
+        info.nextSteps = 'You can now create businesses and use API features';
+      } else {
+        info.message = 'Your account is verified but API access is disabled';
+        info.nextSteps = 'Contact support to enable API access';
+      }
+      break;
+    case 'rejected':
+      info.message = 'Your account verification was rejected';
+      info.nextSteps = 'Please contact support for more information';
+      break;
+    case 'suspended':
+      info.message = 'Your account has been suspended';
+      info.nextSteps = 'Contact support immediately';
+      break;
+    default:
+      info.message = 'Unknown verification status';
+      info.nextSteps = 'Contact support for assistance';
+  }
+
+  // Add account status info
+  if (user.accountStatus === 'suspended') {
+    info.message = 'Your account has been suspended';
+    info.nextSteps = 'Contact support immediately';
+    info.urgency = 'high';
+  } else if (user.accountStatus === 'deactivated') {
+    info.message = 'Your account has been deactivated';
+    info.nextSteps = 'Contact support to reactivate your account';
+    info.urgency = 'high';
+  }
+
+  info.supportEmail = process.env.SUPPORT_EMAIL || 'support@company.com';
+  
+  return info;
+};
+
 class AuthController {
   // User registration with admin verification
   async signup(req, res) {
@@ -231,7 +311,7 @@ class AuthController {
       };
 
       // Prepare verification status information
-      const verificationInfo = this.getVerificationInfo(user);
+      const verificationInfo = getVerificationInfo(user);
 
       const response = {
         success: true,
@@ -527,7 +607,7 @@ class AuthController {
       };
 
       // Add status messages and next steps
-      const statusInfo = this.getDetailedVerificationInfo(user);
+      const statusInfo = getDetailedVerificationInfo(user);
       Object.assign(status, statusInfo);
 
       res.json({
@@ -578,7 +658,7 @@ class AuthController {
       await user.save();
 
       // Get current verification info
-      const verificationInfo = this.getDetailedVerificationInfo(user);
+      const verificationInfo = getDetailedVerificationInfo(user);
 
       res.json({
         success: true,
@@ -619,86 +699,6 @@ class AuthController {
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
-  }
-
-  // Helper method to get verification info for login
-  getVerificationInfo(user) {
-    const info = {
-      requiresAttention: false,
-      message: null,
-      status: user.verificationStatus || 'pending',
-      apiEnabled: user.isApiEnabled || false,
-      nextSteps: null
-    };
-
-    if (!user.isVerified) {
-      info.requiresAttention = true;
-      info.message = 'Please verify your email address';
-      info.nextSteps = 'Check your email and click the verification link';
-    } else if (user.verificationStatus === 'pending') {
-      info.requiresAttention = true;
-      info.message = 'Your account is pending admin verification for API access';
-      info.nextSteps = 'Please wait for admin review (1-2 business days)';
-    } else if (user.verificationStatus === 'rejected') {
-      info.requiresAttention = true;
-      info.message = 'Your account verification was rejected';
-      info.nextSteps = 'Contact support for more information';
-      info.rejectionReason = user.rejectionReason;
-    } else if (user.verificationStatus === 'approved' && !user.isApiEnabled) {
-      info.requiresAttention = true;
-      info.message = 'Your account is approved but API access is disabled';
-      info.nextSteps = 'Contact support to enable API access';
-    }
-
-    return info;
-  }
-
-  // Helper method to get detailed verification info
-  getDetailedVerificationInfo(user) {
-    const info = {};
-
-    switch (user.verificationStatus) {
-      case 'pending':
-        info.message = 'Your account is pending admin verification';
-        info.nextSteps = 'Please wait for admin review (1-2 business days)';
-        info.estimatedTime = '1-2 business days';
-        break;
-      case 'approved':
-        if (user.isApiEnabled) {
-          info.message = 'Your account is verified and API access is enabled';
-          info.nextSteps = 'You can now create businesses and use API features';
-        } else {
-          info.message = 'Your account is verified but API access is disabled';
-          info.nextSteps = 'Contact support to enable API access';
-        }
-        break;
-      case 'rejected':
-        info.message = 'Your account verification was rejected';
-        info.nextSteps = 'Please contact support for more information';
-        break;
-      case 'suspended':
-        info.message = 'Your account has been suspended';
-        info.nextSteps = 'Contact support immediately';
-        break;
-      default:
-        info.message = 'Unknown verification status';
-        info.nextSteps = 'Contact support for assistance';
-    }
-
-    // Add account status info
-    if (user.accountStatus === 'suspended') {
-      info.message = 'Your account has been suspended';
-      info.nextSteps = 'Contact support immediately';
-      info.urgency = 'high';
-    } else if (user.accountStatus === 'deactivated') {
-      info.message = 'Your account has been deactivated';
-      info.nextSteps = 'Contact support to reactivate your account';
-      info.urgency = 'high';
-    }
-
-    info.supportEmail = process.env.SUPPORT_EMAIL || 'support@company.com';
-    
-    return info;
   }
 }
 

@@ -1,3 +1,4 @@
+// models/Admin.js
 const mongoose = require('mongoose');
 
 const adminSchema = new mongoose.Schema({
@@ -6,7 +7,8 @@ const adminSchema = new mongoose.Schema({
     required: true,
     unique: true,
     lowercase: true,
-    trim: true
+    trim: true,
+    index: true
   },
   password: {
     type: String,
@@ -22,7 +24,8 @@ const adminSchema = new mongoose.Schema({
     type: String,
     enum: ['super_admin', 'admin', 'moderator'],
     default: 'moderator',
-    required: true
+    required: true,
+    index: true
   },
   permissions: [{
     type: String,
@@ -40,14 +43,16 @@ const adminSchema = new mongoose.Schema({
   }],
   isActive: {
     type: Boolean,
-    default: true
+    default: true,
+    index: true
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin'
   },
   lastLogin: {
-    type: Date
+    type: Date,
+    index: true
   },
   loginAttempts: {
     type: Number,
@@ -69,15 +74,21 @@ const adminSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  ipWhitelist: [{
-    type: String
-  }],
   sessionToken: {
     type: String
-  }
+  },
+  ipWhitelist: [{
+    type: String
+  }]
 }, {
   timestamps: true
 });
+
+// Indexes
+adminSchema.index({ email: 1 });
+adminSchema.index({ role: 1 });
+adminSchema.index({ isActive: 1 });
+adminSchema.index({ createdAt: -1 });
 
 // Virtual for account locked status
 adminSchema.virtual('isLocked').get(function() {
@@ -137,10 +148,6 @@ adminSchema.methods.canVerifyUser = function() {
   return this.hasPermission('user_verification');
 };
 
-adminSchema.methods.canManageBusiness = function() {
-  return this.hasPermission('business_management');
-};
-
 // Increment login attempts
 adminSchema.methods.incLoginAttempts = function() {
   // If we have a previous lock that has expired, restart at 1
@@ -187,12 +194,6 @@ adminSchema.methods.toJSON = function() {
   delete admin.sessionToken;
   return admin;
 };
-
-// Indexes
-adminSchema.index({ email: 1 });
-adminSchema.index({ role: 1 });
-adminSchema.index({ isActive: 1 });
-adminSchema.index({ createdAt: -1 });
 
 const Admin = mongoose.model('Admin', adminSchema);
 

@@ -16,7 +16,7 @@ const liquidityWebhookRoutes = require('./liquidityWebhookRoutes');
 
 // Import admin routes
 const adminAuthRoutes = require('./adminAuth');
-const adminRoutes = require('./adminAuth');
+const adminUserRoutes = require('./adminUsers'); // NEW: Admin user management routes
 
 // Mount route modules
 router.use('/auth', authRoutes);
@@ -30,7 +30,7 @@ router.use('/webhooks/liquidity', liquidityWebhookRoutes);
 
 // Mount admin routes
 router.use('/admin/auth', adminAuthRoutes);
-router.use('/admin', adminRoutes);
+router.use('/admin/users', adminUserRoutes); // NEW: Admin user management routes
 
 // Use the combined pricing routes (contains both onramp-price and offramp-price)
 router.use('/', pricingRoutes); // Mount directly to root since routes already have full paths
@@ -51,7 +51,8 @@ router.get('/health', (req, res) => {
       businessOnramp: 'active',
       liquidityWebhooks: 'active',
       admin: 'active',
-      adminAuth: 'active'
+      adminAuth: 'active',
+      adminUserManagement: 'active' // NEW
     }
   });
 });
@@ -80,7 +81,7 @@ router.get('/', (req, res) => {
         logout: 'POST /api/v1/auth/logout'
       },
 
-      // Admin Authentication (NEW)
+      // Admin Authentication (available)
       adminAuth: {
         login: 'POST /api/v1/admin/auth/login',
         profile: 'GET /api/v1/admin/auth/profile',
@@ -91,16 +92,18 @@ router.get('/', (req, res) => {
         logout: 'POST /api/v1/admin/auth/logout'
       },
 
-      // Admin User Management (NEW)
-      admin: {
-        getPendingUsers: 'GET /api/v1/admin/users/pending-verification',
+      // Admin User Management (NEW - available)
+      adminUserManagement: {
+        getAllUsers: 'GET /api/v1/admin/users',
+        getUserDetails: 'GET /api/v1/admin/users/{userId}',
+        getPendingVerification: 'GET /api/v1/admin/users/pending-verification',
         verifyUser: 'POST /api/v1/admin/users/{userId}/verify',
+        manageUser: 'PUT /api/v1/admin/users/{userId}/manage',
         toggleApiAccess: 'PUT /api/v1/admin/users/{userId}/api-access',
-        getVerifiedUsers: 'GET /api/v1/admin/users/verified',
-        getUserDetails: 'GET /api/v1/admin/users/{userId}/details',
-        bulkVerifyUsers: 'POST /api/v1/admin/users/bulk-verify',
-        getDashboardStats: 'GET /api/v1/admin/dashboard/stats',
-        getVerificationHistory: 'GET /api/v1/admin/verification-history'
+        resetUserPassword: 'POST /api/v1/admin/users/{userId}/reset-password',
+        getUserStats: 'GET /api/v1/admin/users/stats',
+        bulkUserActions: 'POST /api/v1/admin/users/bulk-actions',
+        getUserHistory: 'GET /api/v1/admin/users/{userId}/history'
       },
       
       // Business Management (available)
@@ -127,7 +130,7 @@ router.get('/', (req, res) => {
         validateForTrading: 'POST /api/v1/business/tokens/validate-for-trading'
       },
 
-      // Business Onramp API (NEW - for business integration)
+      // Business Onramp API (available - for business integration)
       businessOnramp: {
         create: 'POST /api/v1/business-onramp/create',
         getOrder: 'GET /api/v1/business-onramp/orders/{orderId}',
@@ -184,11 +187,13 @@ router.get('/', (req, res) => {
     
     features: [
       'User Authentication with JWT',
-      'Admin User Verification System', // NEW
-      'Admin Dashboard and Management', // NEW
-      'User Account Approval/Rejection', // NEW
-      'API Access Control', // NEW
-      'Verification History Tracking', // NEW
+      'Admin User Verification System', // available
+      'Admin Dashboard and Management', // available
+      'User Account Approval/Rejection', // available
+      'API Access Control', // available
+      'Verification History Tracking', // available
+      'Bulk User Operations', // available
+      'Admin Permission System', // available
       'Business Registration & Management',
       'Automatic API Key Generation',
       'Secure API Credentials Management', 
@@ -224,7 +229,7 @@ router.get('/', (req, res) => {
     
     authenticationMethods: {
       userAuth: 'JWT Bearer tokens for user operations',
-      adminAuth: 'JWT Bearer tokens for admin operations', // NEW
+      adminAuth: 'JWT Bearer tokens for admin operations', // available
       businessAuth: 'API Key + Secret for token validation and trading services',
       businessOnrampAuth: 'API Key + Secret for business onramp integration'
     },
@@ -246,41 +251,71 @@ router.get('/', (req, res) => {
       'Agriculture', 'Fintech', 'Cryptocurrency', 'Other'
     ],
 
-    // NEW: Admin System Documentation
+    // Admin System Documentation (UPDATED)
     adminSystem: {
-      description: 'Admin system for user verification and management',
+      description: 'Complete admin system for user verification and management - FULLY IMPLEMENTED',
+      status: 'ACTIVE',
       capabilities: [
-        'User account verification and approval',
-        'API access management',
-        'Bulk user operations',
-        'Dashboard analytics and statistics',
-        'Verification history tracking',
-        'Admin account management',
-        'Role-based permissions (super_admin, admin, moderator)',
-        'Email notifications for account changes',
-        'Audit trail for admin actions'
+        'User account verification and approval workflow',
+        'API access management for approved users',
+        'Bulk user operations (approve/reject/suspend multiple users)',
+        'Dashboard analytics and comprehensive statistics',
+        'Verification history tracking with audit trail',
+        'Admin account management with role-based permissions',
+        'Email notifications for all account changes',
+        'Advanced user filtering and search',
+        'Force password reset for users',
+        'Account status management (active/suspended/deactivated)',
+        'Permission-based admin access control',
+        'IP whitelisting and security features',
+        'Rate limiting for admin operations',
+        'Comprehensive audit logging'
       ],
+      availableEndpoints: {
+        userManagement: 10, // Total endpoints for user management
+        adminAuth: 7, // Admin authentication endpoints
+        total: 17
+      },
       userVerificationFlow: [
         '1. User registers account (pending status)',
         '2. Admin receives notification email',
-        '3. Admin reviews user information',
-        '4. Admin approves/rejects with reason',
-        '5. User receives notification email',
-        '6. API access enabled for approved users'
+        '3. Admin reviews user information via dashboard',
+        '4. Admin approves/rejects with reason via API',
+        '5. User receives notification email with decision',
+        '6. API access enabled automatically for approved users',
+        '7. Complete audit trail maintained for compliance'
       ],
       verificationStatuses: ['pending', 'approved', 'rejected', 'suspended'],
       accountStatuses: ['active', 'suspended', 'deactivated'],
       adminRoles: {
-        super_admin: 'Full system access including admin management',
-        admin: 'User verification, business management, API key management',
-        moderator: 'User verification and basic analytics only'
+        super_admin: 'Full system access including admin management and system settings',
+        admin: 'User verification, business management, API key management, analytics',
+        moderator: 'User verification, basic analytics, limited admin functions'
       },
+      adminPermissions: [
+        'user_verification', 'user_management', 'business_verification',
+        'business_management', 'api_key_management', 'system_settings',
+        'analytics_view', 'bulk_operations', 'admin_management'
+      ],
       security: [
-        'Account lockout after failed attempts',
-        'Shorter JWT token expiry for admins',
-        'IP address logging',
-        'Admin action audit trails',
-        'Role-based permission system'
+        'Account lockout after 5 failed login attempts (2 hour lock)',
+        'Shorter JWT token expiry for admins (8 hours vs 7 days for users)',
+        'IP address logging and optional whitelist',
+        'Admin action audit trails with full details',
+        'Role-based permission system with granular control',
+        'Session token validation and invalidation',
+        'Rate limiting on admin endpoints',
+        'Password strength requirements for admin accounts'
+      ],
+      bulkOperations: [
+        'Bulk approve users', 'Bulk reject users', 'Bulk suspend accounts',
+        'Bulk activate accounts', 'Bulk enable API access', 'Bulk disable API access'
+      ],
+      analytics: [
+        'User verification statistics', 'Account status breakdown',
+        'API access metrics', 'Admin activity monitoring',
+        'Growth trends and user registration analytics',
+        'Email verification rates', 'User activity tracking'
       ]
     },
 
@@ -402,7 +437,7 @@ router.get('/', (req, res) => {
       businessRequirements: [
         'Valid business registration',
         'Active API credentials',
-        'Admin-approved user account', // NEW
+        'Admin-approved user account', // ENFORCED
         'Supported token configuration',
         'Optional: webhook endpoint setup',
         'Optional: payment wallet configuration'

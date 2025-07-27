@@ -3,12 +3,14 @@ const User = require('./User');
 const Business = require('./Business');
 const ApiKey = require('./ApiKey');
 const TokenSelectionHistory = require('./TokenSelectionHistory');
+const Admin = require('./Admin');
 
 // Export all models
 module.exports = {
   User,
   Business,
   ApiKey,
+  Admin,
   TokenSelectionHistory
 };
 
