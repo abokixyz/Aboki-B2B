@@ -11,7 +11,7 @@ async function fetchCryptoToNgnPrice(cryptoSymbol, cryptoAmount = 1) {
     console.log(`[BUSINESS_ONRAMP] Fetching ${cryptoSymbol} price using internal onramp API`);
     
     // Make actual HTTP request to internal onramp price API
-    const baseUrl = process.env.INTERNAL_API_BASE_URL || 'http://localhost:3000';
+    const baseUrl = process.env.INTERNAL_API_BASE_URL || 'http://localhost:5002';
     const response = await axios.get(`${baseUrl}/api/v1/onramp-price`, {
       params: {
         cryptoSymbol: cryptoSymbol,
