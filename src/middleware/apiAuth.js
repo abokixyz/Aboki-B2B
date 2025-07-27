@@ -184,14 +184,13 @@ async function addDefaultTokensIfNeeded(business) {
   }
 }
 
-// Middleware to authenticate business API requests
+// 🔧 FIXED: Middleware to authenticate ONLY the API key (for read-only operations)
 const authenticateApiKey = async (req, res, next) => {
   try {
-    console.log('[API_AUTH] Authenticating API request');
+    console.log('🔑 [API_AUTH] Authenticating API key only for:', req.path);
     
-    // Get API keys from headers
+    // Get API key from headers
     const publicKey = req.headers['x-api-key'] || req.headers['x-public-key'];
-    const secretKey = req.headers['x-secret-key'];
     
     // Validate required headers
     if (!publicKey) {
@@ -202,15 +201,7 @@ const authenticateApiKey = async (req, res, next) => {
       });
     }
     
-    if (!secretKey) {
-      return res.status(401).json({
-        success: false,
-        message: 'Secret key is required. Include X-Secret-Key header.',
-        code: 'MISSING_SECRET_KEY'
-      });
-    }
-    
-    console.log(`[API_AUTH] Validating public key: ${publicKey.substring(0, 10)}...`);
+    console.log(`[API_AUTH] Validating public key: ${publicKey.substring(0, 15)}...`);
     
     // Find the API key record
     const apiKeyRecord = await ApiKey.findOne({
@@ -227,19 +218,7 @@ const authenticateApiKey = async (req, res, next) => {
       });
     }
     
-    // Verify the secret key
-    const isValidSecret = await bcrypt.compare(secretKey, apiKeyRecord.secretKey);
-    
-    if (!isValidSecret) {
-      console.log('[API_AUTH] Invalid secret key');
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid secret key',
-        code: 'INVALID_SECRET_KEY'
-      });
-    }
-    
-    console.log(`[API_AUTH] API keys validated for business: ${apiKeyRecord.businessId}`);
+    console.log(`[API_AUTH] API key validated for business: ${apiKeyRecord.businessId}`);
     
     // Get the business information
     const business = await Business.findById(apiKeyRecord.businessId);
@@ -278,7 +257,7 @@ const authenticateApiKey = async (req, res, next) => {
       permissions: apiKeyRecord.permissions
     };
     
-    console.log(`[API_AUTH] Authentication successful for business: ${business.businessName}`);
+    console.log(`✅ [API_AUTH] API key authentication successful for business: ${business.businessName}`);
     next();
     
   } catch (error) {
@@ -291,10 +270,128 @@ const authenticateApiKey = async (req, res, next) => {
   }
 };
 
-// Middleware to validate business onramp request data
-const validateBusinessOnrampRequest = (req, res, next) => {
+// 🔧 NEW: Separate middleware to validate the secret key (for sensitive operations)
+const validateBusinessOnrampRequest = async (req, res, next) => {
   try {
-    console.log('[API_VALIDATION] Validating business onramp request');
+    console.log('🔐 [API_AUTH] Validating secret key for:', req.path);
+    
+    // Get secret key from headers
+    const secretKey = req.headers['x-secret-key'];
+    
+    // Validate required headers
+    if (!secretKey) {
+      return res.status(401).json({
+        success: false,
+        message: 'Secret key is required. Include X-Secret-Key header.',
+        code: 'MISSING_SECRET_KEY'
+      });
+    }
+    
+    // Business should already be attached by authenticateApiKey middleware
+    if (!req.business || !req.apiKey) {
+      return res.status(500).json({
+        success: false,
+        message: 'Authentication flow error. API key must be validated first.',
+        code: 'AUTH_FLOW_ERROR'
+      });
+    }
+    
+    console.log(`[API_AUTH] Validating secret key for business: ${req.business.businessId}`);
+    
+    // Find the API key record again to get the hashed secret
+    const apiKeyRecord = await ApiKey.findOne({
+      publicKey: req.apiKey.publicKey,
+      isActive: true
+    });
+    
+    if (!apiKeyRecord) {
+      return res.status(401).json({
+        success: false,
+        message: 'API key not found during secret validation',
+        code: 'API_KEY_NOT_FOUND'
+      });
+    }
+    
+    // Verify the secret key
+    const isValidSecret = await bcrypt.compare(secretKey, apiKeyRecord.secretKey);
+    
+    if (!isValidSecret) {
+      console.log('[API_AUTH] Invalid secret key');
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid secret key',
+        code: 'INVALID_SECRET_KEY'
+      });
+    }
+    
+    console.log(`✅ [API_AUTH] Secret key validation successful for business: ${req.business.businessName}`);
+    next();
+    
+  } catch (error) {
+    console.error('[API_AUTH] Secret key validation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Secret key validation service error',
+      code: 'SECRET_VALIDATION_ERROR'
+    });
+  }
+};
+
+// 🔧 ENHANCED: Rate limiting middleware for API endpoints
+const apiRateLimit = (req, res, next) => {
+  try {
+    console.log('⏱️ [API_RATE_LIMIT] Applying rate limit for:', req.path);
+    
+    // This is a basic implementation - in production, use Redis-based rate limiting
+    const rateLimitStore = global.apiRateLimitStore || (global.apiRateLimitStore = new Map());
+    
+    const identifier = req.business?.businessId || req.ip;
+    const now = Date.now();
+    const windowMs = 60 * 1000; // 1 minute
+    const maxRequests = 100; // 100 requests per minute per business
+    
+    const record = rateLimitStore.get(identifier) || { count: 0, resetTime: now + windowMs };
+    
+    if (now > record.resetTime) {
+      // Reset the counter
+      record.count = 0;
+      record.resetTime = now + windowMs;
+    }
+    
+    if (record.count >= maxRequests) {
+      console.log(`[API_RATE_LIMIT] Rate limit exceeded for ${identifier}`);
+      return res.status(429).json({
+        success: false,
+        message: 'Rate limit exceeded. Try again later.',
+        code: 'RATE_LIMIT_EXCEEDED',
+        retryAfter: Math.ceil((record.resetTime - now) / 1000)
+      });
+    }
+    
+    record.count++;
+    rateLimitStore.set(identifier, record);
+    
+    // Set rate limit headers
+    res.set({
+      'X-RateLimit-Limit': maxRequests,
+      'X-RateLimit-Remaining': maxRequests - record.count,
+      'X-RateLimit-Reset': new Date(record.resetTime).toISOString()
+    });
+    
+    console.log(`[API_RATE_LIMIT] Request ${record.count}/${maxRequests} for ${identifier}`);
+    next();
+    
+  } catch (error) {
+    console.error('[API_RATE_LIMIT] Error:', error);
+    // Don't block request if rate limiting fails
+    next();
+  }
+};
+
+// 🔧 NEW: Middleware to validate business onramp request data (separate from authentication)
+const validateOnrampRequestData = (req, res, next) => {
+  try {
+    console.log('[API_VALIDATION] Validating business onramp request data');
     
     const {
       customerEmail,
@@ -373,7 +470,7 @@ const validateBusinessOnrampRequest = (req, res, next) => {
       });
     }
     
-    console.log('[API_VALIDATION] Validation successful');
+    console.log('[API_VALIDATION] Request data validation successful');
     next();
     
   } catch (error) {
@@ -385,55 +482,9 @@ const validateBusinessOnrampRequest = (req, res, next) => {
   }
 };
 
-// Rate limiting middleware for API endpoints
-const apiRateLimit = (req, res, next) => {
-  try {
-    // This is a basic implementation - in production, use Redis-based rate limiting
-    const rateLimitStore = global.apiRateLimitStore || (global.apiRateLimitStore = new Map());
-    
-    const identifier = req.business?.businessId || req.ip;
-    const now = Date.now();
-    const windowMs = 60 * 1000; // 1 minute
-    const maxRequests = 100; // 100 requests per minute per business
-    
-    const record = rateLimitStore.get(identifier) || { count: 0, resetTime: now + windowMs };
-    
-    if (now > record.resetTime) {
-      // Reset the counter
-      record.count = 0;
-      record.resetTime = now + windowMs;
-    }
-    
-    if (record.count >= maxRequests) {
-      return res.status(429).json({
-        success: false,
-        message: 'Rate limit exceeded. Try again later.',
-        code: 'RATE_LIMIT_EXCEEDED',
-        retryAfter: Math.ceil((record.resetTime - now) / 1000)
-      });
-    }
-    
-    record.count++;
-    rateLimitStore.set(identifier, record);
-    
-    // Set rate limit headers
-    res.set({
-      'X-RateLimit-Limit': maxRequests,
-      'X-RateLimit-Remaining': maxRequests - record.count,
-      'X-RateLimit-Reset': new Date(record.resetTime).toISOString()
-    });
-    
-    next();
-    
-  } catch (error) {
-    console.error('[API_RATE_LIMIT] Error:', error);
-    // Don't block request if rate limiting fails
-    next();
-  }
-};
-
 module.exports = {
-  authenticateApiKey,
-  validateBusinessOnrampRequest,
+  authenticateApiKey,           // 🔧 FIXED: Only validates API key
+  validateBusinessOnrampRequest, // 🔧 FIXED: Only validates secret key  
+  validateOnrampRequestData,    // 🔧 NEW: Validates request data
   apiRateLimit
 };

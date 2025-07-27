@@ -80,25 +80,29 @@ const options = {
           type: 'http',
           scheme: 'bearer',
           bearerFormat: 'JWT',
-          description: 'Enter JWT token in the format: Bearer <token>. Used for user authentication.'
+          description: 'Enter JWT token in the format: Bearer <token>. Used for user authentication.',
+          example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2NzU5Nzg4YWI...'
         },
         adminAuth: {
           type: 'http',
           scheme: 'bearer',
           bearerFormat: 'JWT',
-          description: 'Enter admin JWT token in the format: Bearer <token>. Used for admin operations. Shorter expiry (8h) for enhanced security.'
+          description: 'Enter admin JWT token in the format: Bearer <token>. Used for admin operations. Shorter expiry (8h) for enhanced security.',
+          example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhZG1pbklkIjoiNjc1OTc4OGFi...'
         },
         ApiKeyAuth: {
           type: 'apiKey',
           in: 'header',
           name: 'X-API-Key',
-          description: 'Public API key for business authentication. Format: pk_live_...'
+          description: 'Public API key for business authentication. Format: pk_live_... or pk_test_... for test mode.',
+          example: 'YOUR_API_KEY'
         },
         SecretKeyAuth: {
           type: 'apiKey',
           in: 'header', 
           name: 'X-Secret-Key',
-          description: 'Secret key for business authentication. Format: ***REMOVED***...'
+          description: 'Secret key for business authentication. Format: ***REMOVED***... or ***REMOVED***... for test mode. Keep this secret and never expose it in client-side code.',
+          example: '***REMOVED***7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c'
         }
       },
       schemas: {
@@ -537,6 +541,57 @@ const swaggerSetup = (app) => {
           background-color: #357abd;
           border-color: #357abd;
         }
+        /* Enhanced auth section styling */
+        .swagger-ui .auth-wrapper .auth-container {
+          background: #f8f9fa;
+          border: 2px solid #e9ecef;
+          border-radius: 8px;
+          padding: 20px;
+          margin: 15px 0;
+        }
+        .swagger-ui .auth-wrapper .auth-container h4 {
+          color: #495057;
+          font-weight: 600;
+          margin-bottom: 10px;
+        }
+        .swagger-ui .auth-wrapper .auth-container .scopes {
+          background: #ffffff;
+          border: 1px solid #dee2e6;
+          border-radius: 4px;
+          padding: 10px;
+          margin-top: 10px;
+        }
+        .swagger-ui .auth-wrapper input[type="text"], 
+        .swagger-ui .auth-wrapper input[type="password"] {
+          font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+          font-size: 13px;
+          background: #ffffff;
+          border: 2px solid #dee2e6;
+          border-radius: 4px;
+          padding: 8px 12px;
+          transition: border-color 0.2s ease;
+        }
+        .swagger-ui .auth-wrapper input[type="text"]:focus, 
+        .swagger-ui .auth-wrapper input[type="password"]:focus {
+          border-color: #4990e2;
+          box-shadow: 0 0 0 2px rgba(73, 144, 226, 0.1);
+          outline: none;
+        }
+        /* API Key specific styling */
+        .swagger-ui .auth-wrapper .auth-container[data-name*="ApiKeyAuth"] {
+          border-left: 4px solid #28a745;
+          background: linear-gradient(135deg, #f8fff9 0%, #f0fff4 100%);
+        }
+        .swagger-ui .auth-wrapper .auth-container[data-name*="SecretKeyAuth"] {
+          border-left: 4px solid #dc3545;
+          background: linear-gradient(135deg, #fff8f8 0%, #fff0f0 100%);
+        }
+        /* JWT Auth styling */
+        .swagger-ui .auth-wrapper .auth-container[data-name*="bearerAuth"], 
+        .swagger-ui .auth-wrapper .auth-container[data-name*="adminAuth"] {
+          border-left: 4px solid #6f42c1;
+          background: linear-gradient(135deg, #faf9ff 0%, #f4f0ff 100%);
+        }
         /* Admin section styling */
         .swagger-ui .opblock-tag[data-tag*="Admin"] {
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -568,6 +623,17 @@ const swaggerSetup = (app) => {
           color: #ff6b6b;
           font-weight: bold;
         }
+        /* Example values styling */
+        .swagger-ui .auth-wrapper .auth-container .wrapper p {
+          background: #e9ecef;
+          padding: 8px 12px;
+          border-radius: 4px;
+          font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+          font-size: 12px;
+          margin: 5px 0;
+          color: #495057;
+          border-left: 3px solid #6c757d;
+        }
       `,
       customSiteTitle: "Complete Business, Admin & Onramp API Documentation",
       swaggerOptions: {
@@ -597,10 +663,33 @@ const swaggerSetup = (app) => {
           ];
           return order.indexOf(a) - order.indexOf(b);
         },
-        operationsSorter: 'alpha'
+        operationsSorter: 'alpha',
+        // Pre-fill authorization examples
+        preauthorizeApiKey: {
+          'X-API-Key': 'YOUR_API_KEY',
+          'X-Secret-Key': '***REMOVED***7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c'
+        }
       },
       customJs: [
-        // Add custom JavaScript if needed for admin section highlighting
+        // Add custom JavaScript for better auth UX
+        `
+        window.addEventListener('DOMContentLoaded', function() {
+          // Add placeholder text to auth inputs
+          setTimeout(function() {
+            const apiKeyInput = document.querySelector('input[placeholder="X-API-Key"]');
+            if (apiKeyInput) {
+              apiKeyInput.placeholder = 'YOUR_API_KEY';
+              apiKeyInput.style.fontSize = '13px';
+            }
+            
+            const secretKeyInput = document.querySelector('input[placeholder="X-Secret-Key"]');
+            if (secretKeyInput) {
+              secretKeyInput.placeholder = '***REMOVED***7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c';
+              secretKeyInput.style.fontSize = '13px';
+            }
+          }, 1000);
+        });
+        `
       ]
     }));
 
@@ -649,6 +738,12 @@ const swaggerSetup = (app) => {
           'Liquidity Webhooks',
           'API Key Management'
         ],
+        authenticationExamples: {
+          apiKey: 'YOUR_API_KEY',
+          secretKey: '***REMOVED***7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c',
+          jwtToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2NzU5Nzg4YWI...',
+          adminToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhZG1pbklkIjoiNjc1OTc4OGFi...'
+        },
         newFeatures: {
           adminUserManagement: {
             description: 'Complete admin system for user verification and management',
@@ -869,11 +964,95 @@ const swaggerSetup = (app) => {
       });
     });
 
+    // NEW: Business API key examples endpoint
+    app.get('/api-docs/business/auth-examples', (req, res) => {
+      res.json({
+        success: true,
+        message: 'Business API Authentication Examples',
+        description: 'Examples and guidance for using business API keys',
+        authenticationTypes: {
+          apiKeyOnly: {
+            description: 'Used for read-only operations like getting supported tokens and quotes',
+            endpoints: [
+              'GET /business-onramp/supported-tokens',
+              'POST /business-onramp/quote'
+            ],
+            headers: {
+              'X-API-Key': 'YOUR_API_KEY'
+            },
+            example: `curl -X GET \\
+  'https://api.yourdomain.com/api/v1/business-onramp/supported-tokens' \\
+  -H 'X-API-Key: YOUR_API_KEY'`
+          },
+          fullAuthentication: {
+            description: 'Used for sensitive operations like creating orders and accessing order data',
+            endpoints: [
+              'POST /business-onramp/create',
+              'GET /business-onramp/orders',
+              'GET /business-onramp/orders/{orderId}',
+              'GET /business-onramp/stats'
+            ],
+            headers: {
+              'X-API-Key': 'YOUR_API_KEY',
+              'X-Secret-Key': '***REMOVED***7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c'
+            },
+            example: `curl -X POST \\
+  'https://api.yourdomain.com/api/v1/business-onramp/create' \\
+  -H 'X-API-Key: YOUR_API_KEY' \\
+  -H 'X-Secret-Key: ***REMOVED***7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c' \\
+  -H 'Content-Type: application/json' \\
+  -d '{ "customerEmail": "customer@example.com", ... }'`
+          }
+        },
+        keyFormats: {
+          apiKey: {
+            format: 'pk_{environment}_{32_character_string}',
+            examples: {
+              live: 'YOUR_API_KEY',
+              test: 'pk_test_a1b2c3d4e5f6789012345678901234ab'
+            },
+            description: 'Public key that identifies your business account'
+          },
+          secretKey: {
+            format: 'sk_{environment}_{64_character_string}',
+            examples: {
+              live: '***REMOVED***7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c',
+              test: '***REMOVED***1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890'
+            },
+            description: 'Secret key for sensitive operations - keep this secure and never expose in client-side code'
+          }
+        },
+        security: {
+          bestPractices: [
+            'Never expose secret keys in client-side code',
+            'Use environment variables to store keys',
+            'Rotate keys regularly',
+            'Use test keys for development and testing',
+            'Monitor API key usage for suspicious activity',
+            'Implement proper error handling for authentication failures'
+          ],
+          environments: {
+            test: {
+              description: 'Use test keys for development and testing',
+              baseUrl: 'https://api-test.yourdomain.com',
+              keyPrefix: 'pk_test_, ***REMOVED***'
+            },
+            live: {
+              description: 'Use live keys for production',
+              baseUrl: 'https://api.yourdomain.com',
+              keyPrefix: 'pk_live_, ***REMOVED***'
+            }
+          }
+        }
+      });
+    });
+
     console.log(`📚 Swagger docs available at: http://localhost:${process.env.PORT || 5002}/api-docs`);
     console.log(`📄 API JSON available at: http://localhost:${process.env.PORT || 5002}/api-docs.json`);
     console.log(`🔍 Swagger health check: http://localhost:${process.env.PORT || 5002}/api-docs/health`);
     console.log(`👨‍💼 Admin docs: http://localhost:${process.env.PORT || 5002}/api-docs/admin`);
     console.log(`🆕 Admin user management docs: http://localhost:${process.env.PORT || 5002}/api-docs/admin/users`);
+    console.log(`🔑 Business auth examples: http://localhost:${process.env.PORT || 5002}/api-docs/business/auth-examples`);
     
   } catch (error) {
     console.error('❌ Error setting up Swagger:', error.message);
@@ -928,6 +1107,14 @@ const swaggerSetup = (app) => {
       res.status(500).json({
         success: false,
         message: 'Admin user management documentation failed to load',
+        error: error.message
+      });
+    });
+
+    app.get('/api-docs/business/auth-examples', (req, res) => {
+      res.status(500).json({
+        success: false,
+        message: 'Business authentication examples failed to load',
         error: error.message
       });
     });

@@ -3,6 +3,10 @@ const router = express.Router();
 const businessOnrampController = require('../controllers/businessOnrampController');
 const { authenticateApiKey, validateBusinessOnrampRequest, apiRateLimit } = require('../middleware/apiAuth');
 
+// Create different middleware chains based on security requirements
+const readOnlyAuth = [authenticateApiKey, apiRateLimit]; // API key only
+const fullAuth = [authenticateApiKey, validateBusinessOnrampRequest, apiRateLimit]; // Both keys
+
 /**
  * @swagger
  * components:
@@ -191,20 +195,220 @@ const { authenticateApiKey, validateBusinessOnrampRequest, apiRateLimit } = requ
  *     description: API endpoints for business integration - onramp services
  */
 
-// All routes require API key authentication and rate limiting
-router.use(authenticateApiKey);
-router.use(apiRateLimit);
+/**
+ * @swagger
+ * /api/v1/business-onramp/supported-tokens:
+ *   get:
+ *     summary: Get supported tokens for business onramp
+ *     description: Retrieve all tokens supported by the business for onramp orders with current fees. This is a read-only endpoint that only requires an API key.
+ *     tags: [Business Onramp API]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Supported tokens retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     supportedTokens:
+ *                       type: object
+ *                       properties:
+ *                         base:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               symbol:
+ *                                 type: string
+ *                               name:
+ *                                 type: string
+ *                               contractAddress:
+ *                                 type: string
+ *                               decimals:
+ *                                 type: number
+ *                               feePercentage:
+ *                                 type: number
+ *                               isActive:
+ *                                 type: boolean
+ *                               isDefault:
+ *                                 type: boolean
+ *                         solana:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                         ethereum:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                     statistics:
+ *                       type: object
+ *                       properties:
+ *                         totalActiveTokens:
+ *                           type: number
+ *                         defaultTokens:
+ *                           type: number
+ *                         customTokens:
+ *                           type: number
+ *                         networksSupported:
+ *                           type: array
+ *                           items:
+ *                             type: string
+ *                     businessInfo:
+ *                       type: object
+ *                       properties:
+ *                         businessId:
+ *                           type: string
+ *                         businessName:
+ *                           type: string
+ *       401:
+ *         description: Invalid API key
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Invalid API key"
+ *                 code:
+ *                   type: string
+ *                   example: "INVALID_API_KEY"
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/supported-tokens', readOnlyAuth, businessOnrampController.getSupportedTokens);
+
+/**
+ * @swagger
+ * /api/v1/business-onramp/quote:
+ *   post:
+ *     summary: Get price quote for business onramp
+ *     description: Get a detailed price quote for converting NGN to specified token including business fees and breakdown. This is a read-only endpoint that only requires an API key.
+ *     tags: [Business Onramp API]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - amount
+ *               - targetToken
+ *               - targetNetwork
+ *             properties:
+ *               amount:
+ *                 type: number
+ *                 minimum: 1000
+ *                 maximum: 10000000
+ *                 example: 50000
+ *                 description: "Amount in NGN"
+ *               targetToken:
+ *                 type: string
+ *                 example: "USDC"
+ *               targetNetwork:
+ *                 type: string
+ *                 enum: [base, solana, ethereum]
+ *                 example: "base"
+ *     responses:
+ *       200:
+ *         description: Quote calculated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     amount:
+ *                       type: number
+ *                       example: 50000
+ *                     targetToken:
+ *                       type: string
+ *                       example: "USDC"
+ *                     targetNetwork:
+ *                       type: string
+ *                       example: "base"
+ *                     exchangeRate:
+ *                       type: number
+ *                       example: 1653.5
+ *                     tokenAmount:
+ *                       type: number
+ *                       example: 30.25
+ *                     feePercentage:
+ *                       type: number
+ *                       example: 1.5
+ *                     feeAmount:
+ *                       type: number
+ *                       example: 750
+ *                     netAmount:
+ *                       type: number
+ *                       example: 49250
+ *                     finalTokenAmount:
+ *                       type: number
+ *                       example: 29.78
+ *                     breakdown:
+ *                       type: object
+ *                       properties:
+ *                         grossAmount:
+ *                           type: string
+ *                           example: "₦50,000"
+ *                         businessFee:
+ *                           type: string
+ *                           example: "₦750 (1.5%)"
+ *                         netAmount:
+ *                           type: string
+ *                           example: "₦49,250"
+ *                         youReceive:
+ *                           type: string
+ *                           example: "29.78 USDC"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     validFor:
+ *                       type: number
+ *                       example: 300
+ *                       description: "Quote valid for X seconds"
+ *                     expiresAt:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: Invalid request parameters
+ *       401:
+ *         description: Invalid API key
+ *       403:
+ *         description: Token not supported by business
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/quote', readOnlyAuth, businessOnrampController.getQuote);
 
 /**
  * @swagger
  * /api/v1/business-onramp/create:
  *   post:
  *     summary: Create onramp order for business customer
- *     description: Create a new onramp order for a business customer. The customer will pay in NGN and receive the specified token. Webhook URL is optional - businesses can fetch order status instead.
+ *     description: Create a new onramp order for a business customer. The customer will pay in NGN and receive the specified token. Requires both API key and secret key for security.
  *     tags: [Business Onramp API]
  *     security:
  *       - ApiKeyAuth: []
- *       - SecretKeyAuth: []
+ *         SecretKeyAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -236,24 +440,38 @@ router.use(apiRateLimit);
  *                   items:
  *                     type: string
  *       401:
- *         description: Invalid API credentials
+ *         description: Invalid API credentials (missing API key or secret key)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Secret key is required. Include X-Secret-Key header."
+ *                 code:
+ *                   type: string
+ *                   example: "MISSING_SECRET_KEY"
  *       403:
  *         description: Token not supported by business
  *       500:
  *         description: Internal server error
  */
-router.post('/create', validateBusinessOnrampRequest, businessOnrampController.createOnrampOrder);
+router.post('/create', fullAuth, businessOnrampController.createOnrampOrder);
 
 /**
  * @swagger
  * /api/v1/business-onramp/orders/{orderId}:
  *   get:
  *     summary: Get onramp order details by ID
- *     description: Retrieve complete details of a specific onramp order including current status and transaction information
+ *     description: Retrieve complete details of a specific onramp order including current status and transaction information. Requires both API key and secret key.
  *     tags: [Business Onramp API]
  *     security:
  *       - ApiKeyAuth: []
- *       - SecretKeyAuth: []
+ *         SecretKeyAuth: []
  *     parameters:
  *       - in: path
  *         name: orderId
@@ -279,18 +497,18 @@ router.post('/create', validateBusinessOnrampRequest, businessOnrampController.c
  *       401:
  *         description: Invalid API credentials
  */
-router.get('/orders/:orderId', businessOnrampController.getOrderById);
+router.get('/orders/:orderId', fullAuth, businessOnrampController.getOrderById);
 
 /**
  * @swagger
  * /api/v1/business-onramp/orders:
  *   get:
  *     summary: Get all onramp orders for business
- *     description: Retrieve all onramp orders created by this business with optional filtering and pagination
+ *     description: Retrieve all onramp orders created by this business with optional filtering and pagination. Requires both API key and secret key.
  *     tags: [Business Onramp API]
  *     security:
  *       - ApiKeyAuth: []
- *       - SecretKeyAuth: []
+ *         SecretKeyAuth: []
  *     parameters:
  *       - in: query
  *         name: status
@@ -395,197 +613,21 @@ router.get('/orders/:orderId', businessOnrampController.getOrderById);
  *                           type: number
  *                         totalFees:
  *                           type: number
+ *       401:
+ *         description: Invalid API credentials
  */
-router.get('/orders', businessOnrampController.getAllOrders);
-
-/**
- * @swagger
- * /api/v1/business-onramp/supported-tokens:
- *   get:
- *     summary: Get supported tokens for business onramp
- *     description: Retrieve all tokens supported by the business for onramp orders with current fees
- *     tags: [Business Onramp API]
- *     security:
- *       - ApiKeyAuth: []
- *     responses:
- *       200:
- *         description: Supported tokens retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     supportedTokens:
- *                       type: object
- *                       properties:
- *                         base:
- *                           type: array
- *                           items:
- *                             type: object
- *                             properties:
- *                               symbol:
- *                                 type: string
- *                               name:
- *                                 type: string
- *                               contractAddress:
- *                                 type: string
- *                               decimals:
- *                                 type: number
- *                               feePercentage:
- *                                 type: number
- *                               isActive:
- *                                 type: boolean
- *                               isDefault:
- *                                 type: boolean
- *                         solana:
- *                           type: array
- *                           items:
- *                             type: object
- *                         ethereum:
- *                           type: array
- *                           items:
- *                             type: object
- *                     statistics:
- *                       type: object
- *                       properties:
- *                         totalActiveTokens:
- *                           type: number
- *                         defaultTokens:
- *                           type: number
- *                         customTokens:
- *                           type: number
- *                         networksSupported:
- *                           type: array
- *                           items:
- *                             type: string
- *                     businessInfo:
- *                       type: object
- *                       properties:
- *                         businessId:
- *                           type: string
- *                         businessName:
- *                           type: string
- */
-router.get('/supported-tokens', businessOnrampController.getSupportedTokens);
-
-/**
- * @swagger
- * /api/v1/business-onramp/quote:
- *   post:
- *     summary: Get price quote for business onramp
- *     description: Get a detailed price quote for converting NGN to specified token including business fees and breakdown
- *     tags: [Business Onramp API]
- *     security:
- *       - ApiKeyAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - amount
- *               - targetToken
- *               - targetNetwork
- *             properties:
- *               amount:
- *                 type: number
- *                 minimum: 1000
- *                 maximum: 10000000
- *                 example: 50000
- *                 description: "Amount in NGN"
- *               targetToken:
- *                 type: string
- *                 example: "USDC"
- *               targetNetwork:
- *                 type: string
- *                 enum: [base, solana, ethereum]
- *                 example: "base"
- *     responses:
- *       200:
- *         description: Quote calculated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     amount:
- *                       type: number
- *                       example: 50000
- *                     targetToken:
- *                       type: string
- *                       example: "USDC"
- *                     targetNetwork:
- *                       type: string
- *                       example: "base"
- *                     exchangeRate:
- *                       type: number
- *                       example: 1653.5
- *                     tokenAmount:
- *                       type: number
- *                       example: 30.25
- *                     feePercentage:
- *                       type: number
- *                       example: 1.5
- *                     feeAmount:
- *                       type: number
- *                       example: 750
- *                     netAmount:
- *                       type: number
- *                       example: 49250
- *                     finalTokenAmount:
- *                       type: number
- *                       example: 29.78
- *                     breakdown:
- *                       type: object
- *                       properties:
- *                         grossAmount:
- *                           type: string
- *                           example: "₦50,000"
- *                         businessFee:
- *                           type: string
- *                           example: "₦750 (1.5%)"
- *                         netAmount:
- *                           type: string
- *                           example: "₦49,250"
- *                         youReceive:
- *                           type: string
- *                           example: "29.78 USDC"
- *                     timestamp:
- *                       type: string
- *                       format: date-time
- *                     validFor:
- *                       type: number
- *                       example: 300
- *                       description: "Quote valid for X seconds"
- *                     expiresAt:
- *                       type: string
- *                       format: date-time
- */
-router.post('/quote', businessOnrampController.getQuote);
+router.get('/orders', fullAuth, businessOnrampController.getAllOrders);
 
 /**
  * @swagger
  * /api/v1/business-onramp/stats:
  *   get:
  *     summary: Get business onramp statistics
- *     description: Retrieve comprehensive statistics about business onramp orders and performance
+ *     description: Retrieve comprehensive statistics about business onramp orders and performance. Requires both API key and secret key.
  *     tags: [Business Onramp API]
  *     security:
  *       - ApiKeyAuth: []
- *       - SecretKeyAuth: []
+ *         SecretKeyAuth: []
  *     parameters:
  *       - in: query
  *         name: timeframe
@@ -640,15 +682,17 @@ router.post('/quote', businessOnrampController.getQuote);
  *                       type: array
  *                       items:
  *                         type: object
+ *       401:
+ *         description: Invalid API credentials
  */
-router.get('/stats', businessOnrampController.getBusinessStats);
+router.get('/stats', fullAuth, businessOnrampController.getBusinessStats);
 
 /**
  * @swagger
  * /api/v1/business-onramp/webhook/monnify:
  *   post:
  *     summary: Handle Monnify payment webhooks (Internal)
- *     description: Internal endpoint to handle payment notifications from Monnify
+ *     description: Internal endpoint to handle payment notifications from Monnify. This endpoint does not require API keys as it uses webhook signature verification.
  *     tags: [Business Onramp API]
  *     requestBody:
  *       required: true
