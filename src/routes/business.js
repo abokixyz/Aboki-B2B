@@ -180,7 +180,7 @@ router.use(authenticateToken);
  *         secretKey:
  *           type: string
  *           description: Secret key for server-side authentication (shown only once)
- *           example: ***REMOVED***1a2b3c4d5e6f7g8h9i0j1k2l
+ *           example: sk_live_1a2b3c4d5e6f7g8h9i0j1k2l
  *         permissions:
  *           type: array
  *           items:
@@ -1006,7 +1006,7 @@ router.get('/api-keys', businessController.constructor.checkAccountActivation, b
  *                       example: ck_9z8y7x6w5v4u
  *                     secretKey:
  *                       type: string
- *                       example: ***REMOVED***9z8y7x6w5v4u3t2s1r0q9p8o
+ *                       example: sk_live_9z8y7x6w5v4u3t2s1r0q9p8o
  *                     warning:
  *                       type: string
  *                       example: "Store these credentials securely. The secret key will not be shown again."
