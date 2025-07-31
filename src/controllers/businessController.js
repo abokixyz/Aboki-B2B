@@ -164,7 +164,7 @@ class BusinessController {
       const clientKey = `ck_${crypto.randomBytes(12).toString('hex')}`;
       
       // Generate secret key (for server-side use)
-      const secretKey = `***REMOVED***${crypto.randomBytes(24).toString('hex')}`;
+      const secretKey = `sk_live_${crypto.randomBytes(24).toString('hex')}`;
       
       // Hash the secret key for storage
       const saltRounds = 12;

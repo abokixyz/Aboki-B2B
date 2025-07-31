@@ -237,7 +237,7 @@ router.get('/', (req, res) => {
     apiKeyTypes: {
       publicKey: 'For API identification (pk_live_...)',
       clientKey: 'For frontend/client-side use (ck_...)',
-      secretKey: 'For server-side authentication (***REMOVED***...)'
+      secretKey: 'For server-side authentication (sk_live_...)'
     },
     
     businessStatuses: ['pending_verification', 'verified', 'rejected', 'suspended', 'deleted'],
