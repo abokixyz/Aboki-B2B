@@ -4,47 +4,49 @@
     "description": "Blockchain B2B Platform",
     "main": "src/app.js",
     "scripts": {
-     "dev": "nodemon src/app.js",
-     "start": "node src/app.js",
-     "test": "echo \"Error: no test specified\" && exit 1"
+        "dev": "nodemon src/app.js",
+        "start": "node src/app.js",
+        "test": "echo \"Error: no test specified\" && exit 1"
     },
     "keywords": [
-     "blockchain",
-     "b2b",
-     "nodejs",
-     "mongodb"
+        "blockchain",
+        "b2b",
+        "nodejs",
+        "mongodb"
     ],
     "author": "",
     "license": "ISC",
     "dependencies": {
-     "@sendinblue/client": "^3.3.1",
-     "axios": "^1.10.0",
-     "bcrypt": "^6.0.0",
-     "bcryptjs": "^2.4.3",
-     "cors": "^2.8.5",
-     "crypto": "^1.0.1",
-     "dotenv": "^16.6.1",
-     "ethers": "^5.7.2",
-     "express": "^4.21.2",
-     "express-rate-limit": "^7.5.1",
-     "express-validator": "^7.2.1",
-     "helmet": "^8.1.0",
-     "joi": "^17.13.3",
-     "jsonwebtoken": "^9.0.2",
-     "mongoose": "^8.16.5",
-     "multer": "^2.0.1",
-     "node-fetch": "^3.3.2",
-     "nodemailer": "^7.0.3",
-     "redis": "^5.5.6",
-     "swagger-jsdoc": "^6.2.8",
-     "swagger-ui-express": "^5.0.1",
-     "yargs": "^18.0.0"
+        "@sendinblue/client": "^3.3.1",
+        "@solana/web3.js": "^1.98.4",
+        "axios": "^1.10.0",
+        "bcrypt": "^6.0.0",
+        "bcryptjs": "^2.4.3",
+        "cors": "^2.8.5",
+        "crypto": "^1.0.1",
+        "dotenv": "^16.6.1",
+        "ethers": "^5.7.2",
+        "express": "^4.21.2",
+        "express-rate-limit": "^7.5.1",
+        "express-validator": "^7.2.1",
+        "helmet": "^8.1.0",
+        "joi": "^17.13.3",
+        "jsonwebtoken": "^9.0.2",
+        "lodash": "^4.17.21",
+        "mongoose": "^8.16.5",
+        "multer": "^2.0.1",
+        "node-fetch": "^2.6.7",
+        "nodemailer": "^7.0.3",
+        "papaparse": "^5.5.3",
+        "redis": "^5.5.6",
+        "swagger-jsdoc": "^6.2.8",
+        "swagger-ui-express": "^5.0.1",
+        "yargs": "^18.0.0"
     },
     "devDependencies": {
-     "nodemon": "^3.1.10"
+        "nodemon": "^3.1.10"
     },
     "engines": {
-     "node": ">=18.0.0"
+        "node": ">=18.0.0"
     }
-   }
-   
+}
