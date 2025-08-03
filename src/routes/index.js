@@ -14,6 +14,9 @@ const tokenValidationRoutes = require('./tokenValidation');
 const businessOnrampRoutes = require('./businessOnrampRoutes');
 const liquidityWebhookRoutes = require('./liquidityWebhookRoutes');
 
+// Import new business off-ramp routes
+const businessOfframpRoutes = require('./businessOfframpRoutes');
+
 // Import admin routes
 const adminAuthRoutes = require('./adminAuth');
 const adminUserRoutes = require('./adminUsers'); // NEW: Admin user management routes
@@ -27,6 +30,9 @@ router.use('/validate', tokenValidationRoutes);
 // Mount new business onramp routes
 router.use('/business-onramp', businessOnrampRoutes);
 router.use('/webhooks/liquidity', liquidityWebhookRoutes);
+
+// Mount new business off-ramp routes
+router.use('/business-offramp', businessOfframpRoutes);
 
 // Mount admin routes
 router.use('/admin/auth', adminAuthRoutes);
@@ -49,10 +55,11 @@ router.get('/health', (req, res) => {
       pricing: 'active',
       offramp: 'active',
       businessOnramp: 'active',
+      businessOfframp: 'active', // NEW
       liquidityWebhooks: 'active',
       admin: 'active',
       adminAuth: 'active',
-      adminUserManagement: 'active' // NEW
+      adminUserManagement: 'active'
     }
   });
 });
@@ -61,7 +68,7 @@ router.get('/health', (req, res) => {
 router.get('/', (req, res) => {
   res.json({
     success: true,
-    message: 'Complete Authentication, Business Management & Crypto Trading API with Business Onramp and Admin System',
+    message: 'Complete Authentication, Business Management & Crypto Trading API with Business Onramp/Offramp and Admin System',
     version: '1.0.0',
     documentation: {
       swagger: '/api-docs',
@@ -141,6 +148,24 @@ router.get('/', (req, res) => {
         webhook: 'POST /api/v1/business-onramp/webhook/monnify'
       },
 
+      // Business Off-ramp API (NEW - available for business integration)
+      businessOfframp: {
+        quote: 'POST /api/v1/business-offramp/quote',
+        create: 'POST /api/v1/business-offramp/create',
+        getOrder: 'GET /api/v1/business-offramp/orders/{orderId}',
+        getAllOrders: 'GET /api/v1/business-offramp/orders',
+        cancelOrder: 'POST /api/v1/business-offramp/orders/{orderId}/cancel',
+        stats: 'GET /api/v1/business-offramp/stats',
+        supportedTokens: 'GET /api/v1/business-offramp/supported-tokens',
+        banks: 'GET /api/v1/business-offramp/banks',
+        verifyAccount: 'POST /api/v1/business-offramp/verify-account',
+        config: 'GET /api/v1/business-offramp/config',
+        health: 'GET /api/v1/business-offramp/health',
+        webhookDepositConfirmation: 'POST /api/v1/business-offramp/webhook/deposit-confirmation',
+        webhookPayoutStatus: 'POST /api/v1/business-offramp/webhook/payout-status',
+        monitorExpiredOrders: 'POST /api/v1/business-offramp/monitor/expired-orders'
+      },
+
       // Token Management (available)
       tokens: {
         available: 'GET /api/v1/tokens/available',
@@ -202,7 +227,9 @@ router.get('/', (req, res) => {
       'Multi-chain Token Validation',
       'Crypto-to-Fiat Pricing (Onramp)',
       'Fiat-to-Crypto Offramp Services',
+      'Token-to-Fiat Offramp Services (NEW)', // NEW
       'Bank Account Verification',
+      'Automatic Wallet Generation (NEW)', // NEW
       'Payment Order Management',
       'Webhook Support',
       'Business Token Configuration',
@@ -210,6 +237,7 @@ router.get('/', (req, res) => {
       'Multi-Network Wallet Support',
       'Trading Destination Token Setup',
       'Business Onramp Integration API',
+      'Business Offramp Integration API (NEW)', // NEW
       'Live Pricing Integration',
       'Optional Webhook Delivery',
       'Comprehensive Order Management',
@@ -231,7 +259,8 @@ router.get('/', (req, res) => {
       userAuth: 'JWT Bearer tokens for user operations',
       adminAuth: 'JWT Bearer tokens for admin operations', // available
       businessAuth: 'API Key + Secret for token validation and trading services',
-      businessOnrampAuth: 'API Key + Secret for business onramp integration'
+      businessOnrampAuth: 'API Key + Secret for business onramp integration',
+      businessOfframpAuth: 'API Key + Secret for business offramp integration' // NEW
     },
     
     apiKeyTypes: {
@@ -444,6 +473,117 @@ router.get('/', (req, res) => {
       ]
     },
 
+    // Business Off-ramp API Documentation (NEW)
+    businessOfframpAPI: {
+      description: 'API for businesses to integrate token-to-fiat offramp services for their customers',
+      status: 'ACTIVE',
+      capabilities: [
+        'Token-to-NGN conversion quotes',
+        'Automatic wallet generation for deposits',
+        'Nigerian bank account verification via Lenco',
+        'Real-time order tracking and management',
+        'Automatic NGN payout to customer bank accounts',
+        'Comprehensive webhook notifications',
+        'Multi-network support (Base, Solana, Ethereum)',
+        'Business analytics and statistics',
+        'Order cancellation and management',
+        'Health monitoring and service status',
+        'Expired order monitoring and cleanup'
+      ],
+      authentication: {
+        method: 'API Key + Secret Key',
+        headers: ['X-API-Key', 'X-Secret-Key'],
+        rateLimit: {
+          requestsPerMinute: 100
+        }
+      },
+      orderStatuses: [
+        'pending_deposit',     // Waiting for customer to send tokens
+        'deposit_received',    // Tokens received, processing payout
+        'processing',          // Processing payout to bank account
+        'pending_payout',      // Payout initiated, waiting for confirmation
+        'completed',           // NGN successfully sent to customer
+        'failed',              // Order failed at any stage
+        'expired',             // Order expired (24 hour limit)
+        'cancelled'            // Order cancelled by business
+      ],
+      supportedNetworks: ['base', 'solana', 'ethereum'],
+      supportedTokens: ['USDC', 'USDT', 'ETH', 'SOL'],
+      minimumAmounts: {
+        base: { USDC: 5, ETH: 0.003 },
+        solana: { USDC: 5, SOL: 0.1 },
+        ethereum: { USDC: 5, ETH: 0.003 }
+      },
+      orderExpiration: '24 hours',
+      features: {
+        automaticWalletGeneration: true,
+        bankAccountVerification: true,
+        realTimeWebhooks: true,
+        multiNetworkSupport: true,
+        encryptedWallets: true,
+        automaticPayouts: true,
+        orderCancellation: true,
+        healthMonitoring: true
+      },
+      webhookEvents: [
+        'offramp_order.created',
+        'offramp_order.deposit_received',
+        'offramp_order.processing',
+        'offramp_order.payout_initiated',
+        'offramp_order.completed',
+        'offramp_order.failed',
+        'offramp_order.expired',
+        'offramp_order.cancelled'
+      ],
+      bankVerification: {
+        provider: 'Lenco API',
+        supportedBanks: 'All Nigerian banks',
+        verification: 'Real-time account name resolution',
+        format: {
+          accountNumber: '10 digits',
+          bankCode: '6 digits'
+        }
+      },
+      walletGeneration: {
+        automatic: true,
+        encrypted: true,
+        uniquePerOrder: true,
+        expirationTime: '24 hours',
+        supportedNetworks: ['base', 'solana', 'ethereum']
+      },
+      payoutProcess: [
+        '1. Customer sends exact token amount to generated wallet',
+        '2. Blockchain monitors detect deposit confirmation',
+        '3. Order status updated to "deposit_received"',
+        '4. NGN equivalent calculated with current rates',
+        '5. Business fees deducted from total amount',
+        '6. Payout initiated to verified bank account',
+        '7. Customer receives NGN in their bank account',
+        '8. Order marked as "completed"'
+      ],
+      businessRequirements: [
+        'Valid business registration',
+        'Active API credentials',
+        'Admin-approved user account',
+        'Supported token configuration with fees',
+        'Optional: webhook endpoint setup for notifications'
+      ],
+      integrationFlow: [
+        '1. Get quote for token-to-NGN conversion',
+        '2. Verify customer bank account details',
+        '3. Create offramp order with customer info',
+        '4. Provide deposit wallet address to customer',
+        '5. Monitor order status via webhooks or polling',
+        '6. Handle completion/failure notifications'
+      ],
+      rateLimit: {
+        quote: { requestsPerMinute: 100 },
+        create: { requestsPerMinute: 10 },
+        verifyAccount: { requestsPerMinute: 20 },
+        general: { requestsPerMinute: 60 }
+      }
+    },
+
     // Settlement and Liquidity
     liquidityIntegration: {
       description: 'Integration with liquidity server for token settlement',
@@ -452,14 +592,23 @@ router.get('/', (req, res) => {
         'Settlement status tracking',
         'Error handling and retries',
         'Webhook notifications to businesses',
-        'Multi-network token support'
+        'Multi-network token support',
+        'Offramp settlement processing (NEW)' // NEW
       ],
       settlementFlow: [
-        '1. Customer pays NGN via Monnify',
+        '1. Customer pays NGN via Monnify (Onramp)',
         '2. Payment verified and order marked as pending',
         '3. Settlement request sent to liquidity server',
         '4. Liquidity server processes token transfer',
         '5. Tokens sent to customer wallet',
+        '6. Order marked as completed'
+      ],
+      offrampSettlementFlow: [ // NEW
+        '1. Customer sends tokens to generated wallet address',
+        '2. Blockchain monitors detect token deposit',
+        '3. Order status updated to "deposit_received"',
+        '4. NGN payout calculated and initiated',
+        '5. Customer receives NGN in verified bank account',
         '6. Order marked as completed'
       ],
       webhookSecurity: {

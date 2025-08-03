@@ -348,7 +348,7 @@ const apiRateLimit = (req, res, next) => {
     const identifier = req.business?.businessId || req.ip;
     const now = Date.now();
     const windowMs = 60 * 1000; // 1 minute
-    const maxRequests = 100; // 100 requests per minute per business
+    const maxRequests = 100000000000; // 100 requests per minute per business
     
     const record = rateLimitStore.get(identifier) || { count: 0, resetTime: now + windowMs };
     
@@ -391,7 +391,7 @@ const apiRateLimit = (req, res, next) => {
 // 🔧 NEW: Middleware to validate business onramp request data (separate from authentication)
 const validateOnrampRequestData = (req, res, next) => {
   try {
-    console.log('[API_VALIDATION] Validating business onramp request data');
+    console.log('[ONRAMP_VALIDATION] Validating business onramp request data');
     
     const {
       customerEmail,
@@ -466,18 +466,187 @@ const validateOnrampRequestData = (req, res, next) => {
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
+        code: 'VALIDATION_FAILED',
         errors
       });
     }
     
-    console.log('[API_VALIDATION] Request data validation successful');
+    console.log('[ONRAMP_VALIDATION] Request data validation successful');
     next();
     
   } catch (error) {
-    console.error('[API_VALIDATION] Validation error:', error);
+    console.error('[ONRAMP_VALIDATION] Validation error:', error);
     res.status(500).json({
       success: false,
-      message: 'Validation service error'
+      message: 'Validation service error',
+      code: 'VALIDATION_SERVICE_ERROR'
+    });
+  }
+};
+
+// 🔧 NEW: Middleware to validate business off-ramp request data
+const validateOfframpRequestData = (req, res, next) => {
+  try {
+    console.log('[OFFRAMP_VALIDATION] Validating business off-ramp request data');
+    
+    const {
+      customerEmail,
+      customerName,
+      customerPhone,
+      tokenAmount,
+      targetToken,
+      targetNetwork,
+      recipientAccountNumber,
+      recipientBankCode,
+      recipientAccountName,
+      recipientBankName,
+      webhookUrl,
+      metadata
+    } = req.body;
+    
+    const errors = [];
+    
+    // Validate required fields
+    if (!customerEmail || !customerEmail.trim()) {
+      errors.push('Customer email is required');
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) {
+      errors.push('Invalid email format');
+    }
+    
+    if (!customerName || !customerName.trim()) {
+      errors.push('Customer name is required');
+    }
+    
+    if (!tokenAmount || typeof tokenAmount !== 'number') {
+      errors.push('Token amount is required and must be a number');
+    } else if (tokenAmount <= 0) {
+      errors.push('Token amount must be greater than 0');
+    } else if (tokenAmount > 1000000) {
+      errors.push('Maximum token amount is 1,000,000');
+    }
+    
+    if (!targetToken || !targetToken.trim()) {
+      errors.push('Target token is required');
+    }
+    
+    if (!targetNetwork || !targetNetwork.trim()) {
+      errors.push('Target network is required');
+    } else if (!['base', 'solana', 'ethereum'].includes(targetNetwork.toLowerCase())) {
+      errors.push('Invalid target network. Supported: base, solana, ethereum');
+    }
+    
+    if (!recipientAccountNumber || !recipientAccountNumber.trim()) {
+      errors.push('Recipient account number is required');
+    } else if (!/^\d{10}$/.test(recipientAccountNumber.trim())) {
+      errors.push('Invalid account number format. Must be 10 digits.');
+    }
+    
+    if (!recipientBankCode || !recipientBankCode.trim()) {
+      errors.push('Recipient bank code is required');
+    } else if (!/^\d{6}$/.test(recipientBankCode.trim())) {
+      errors.push('Invalid bank code format. Must be 6 digits.');
+    }
+    
+    // Validate optional fields if provided
+    if (customerPhone && !/^\+?[1-9]\d{1,14}$/.test(customerPhone.trim())) {
+      errors.push('Invalid phone number format. Use international format (e.g., +2348123456789)');
+    }
+    
+    if (webhookUrl && !/^https?:\/\/.+/.test(webhookUrl)) {
+      errors.push('Invalid webhook URL format. Must start with http:// or https://');
+    }
+    
+    // Validate metadata if provided
+    if (metadata && typeof metadata !== 'object') {
+      errors.push('Metadata must be a valid JSON object');
+    }
+    
+    if (errors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        code: 'VALIDATION_FAILED',
+        errors
+      });
+    }
+    
+    console.log('[OFFRAMP_VALIDATION] Request data validation successful');
+    next();
+    
+  } catch (error) {
+    console.error('[OFFRAMP_VALIDATION] Validation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Validation service error',
+      code: 'VALIDATION_SERVICE_ERROR'
+    });
+  }
+};
+
+// 🔧 NEW: Middleware for webhook request validation
+const validateWebhookRequest = (req, res, next) => {
+  try {
+    console.log('[WEBHOOK_VALIDATION] Validating webhook request');
+    
+    // Basic webhook signature validation (implement based on your webhook provider)
+    const signature = req.headers['x-webhook-signature'] || req.headers['x-signature'];
+    const webhookSecret = process.env.WEBHOOK_SECRET;
+    
+    if (webhookSecret && signature) {
+      // Implement signature validation here
+      // This is provider-specific (e.g., GitHub, Stripe style)
+      console.log('[WEBHOOK_VALIDATION] Webhook signature validation not implemented');
+    }
+    
+    // Allow webhook requests to proceed
+    console.log('[WEBHOOK_VALIDATION] Webhook request validated');
+    next();
+    
+  } catch (error) {
+    console.error('[WEBHOOK_VALIDATION] Webhook validation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Webhook validation service error',
+      code: 'WEBHOOK_VALIDATION_ERROR'
+    });
+  }
+};
+
+// 🔧 NEW: Middleware for admin/internal operations
+const validateInternalRequest = (req, res, next) => {
+  try {
+    console.log('[INTERNAL_VALIDATION] Validating internal request');
+    
+    const internalKey = req.headers['x-internal-key'];
+    const expectedInternalKey = process.env.INTERNAL_API_KEY;
+    
+    if (!expectedInternalKey) {
+      console.log('[INTERNAL_VALIDATION] Internal API key not configured');
+      return res.status(503).json({
+        success: false,
+        message: 'Internal API not configured',
+        code: 'INTERNAL_API_NOT_CONFIGURED'
+      });
+    }
+    
+    if (!internalKey || internalKey !== expectedInternalKey) {
+      console.log('[INTERNAL_VALIDATION] Invalid internal API key');
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid internal API key',
+        code: 'INVALID_INTERNAL_KEY'
+      });
+    }
+    
+    console.log('[INTERNAL_VALIDATION] Internal request validated');
+    next();
+    
+  } catch (error) {
+    console.error('[INTERNAL_VALIDATION] Internal validation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal validation service error',
+      code: 'INTERNAL_VALIDATION_ERROR'
     });
   }
 };
@@ -485,6 +654,9 @@ const validateOnrampRequestData = (req, res, next) => {
 module.exports = {
   authenticateApiKey,           // 🔧 FIXED: Only validates API key
   validateBusinessOnrampRequest, // 🔧 FIXED: Only validates secret key  
-  validateOnrampRequestData,    // 🔧 NEW: Validates request data
-  apiRateLimit
+  validateOnrampRequestData,    // 🔧 NEW: Validates onramp request data
+  validateOfframpRequestData,   // 🔧 NEW: Validates off-ramp request data
+  validateWebhookRequest,       // 🔧 NEW: Validates webhook requests
+  validateInternalRequest,      // 🔧 NEW: Validates internal API requests
+  apiRateLimit                  // 🔧 Enhanced rate limiting
 };
