@@ -308,288 +308,154 @@ async function processBaseNetworkTokenFixed(cryptoSymbol, tokenInfo, cryptoAmoun
   }
 }
 
-
-async function processSolanaUSDCDirect(cryptoSymbol, tokenInfo, cryptoAmount, customerNgnAmount = null) {
-  try {
-      console.log(`[SOLANA_USDC_DIRECT] Processing direct USDC purchase on Solana`);
-      
-      // Step 1: Get current USDC to NGN rate
-      console.log(`[SOLANA_USDC_DIRECT] Getting current USDC-NGN exchange rate...`);
-      const usdcToNgnRate = await getUSDCToNGNRate();
-      console.log(`[SOLANA_USDC_DIRECT] ✅ Current USDC rate: ₦${usdcToNgnRate.toLocaleString()}`);
-      
-      // Step 2: Calculate customer's USDC amount
-      let actualUsdcAmount = cryptoAmount;
-      let actualNgnValue = cryptoAmount * usdcToNgnRate;
-      
-      if (customerNgnAmount) {
-          actualUsdcAmount = customerNgnAmount / usdcToNgnRate;
-          actualNgnValue = customerNgnAmount;
-          
-          console.log(`[SOLANA_USDC_DIRECT] Customer purchase calculation:`);
-          console.log(`  - Customer NGN: ₦${customerNgnAmount.toLocaleString()}`);
-          console.log(`  - Current USDC rate: ₦${usdcToNgnRate.toLocaleString()}`);
-          console.log(`  - USDC amount: ${actualUsdcAmount.toFixed(6)} USDC`);
-          console.log(`  - No swap needed - direct USDC purchase`);
-      }
-      
-      // Step 3: Check minimum transaction value
-      const meetsMinTransactionValue = actualUsdcAmount >= 1.0;
-      
-      if (!meetsMinTransactionValue) {
-          const minimumNgnRequired = Math.ceil(usdcToNgnRate * 1.0);
-          console.error(`[SOLANA_USDC_DIRECT] ❌ Transaction value too small`);
-          throw new Error(`Transaction value ($${actualUsdcAmount.toFixed(6)}) is below minimum ($1 USDC = ₦${minimumNgnRequired.toLocaleString()}). Minimum purchase: ₦${minimumNgnRequired.toLocaleString()}`);
-      }
-      
-      console.log(`[SOLANA_USDC_DIRECT] ✅ Transaction meets minimum value: $${actualUsdcAmount.toFixed(6)} USDC (>$1.0 required)`);
-      
-      const unitPriceInNgn = usdcToNgnRate;
-      const pricePerTokenUsdc = 1.0; // 1 USDC = 1 USDC
-      
-      console.log(`[SOLANA_USDC_DIRECT] ✅ Direct USDC purchase calculation:`);
-      console.log(`  - Unit price: 1 USDC = ₦${unitPriceInNgn.toLocaleString()}`);
-      console.log(`  - Customer gets: ${actualUsdcAmount.toFixed(6)} USDC`);
-      console.log(`  - Total value: ₦${actualNgnValue.toLocaleString()}`);
-      console.log(`  - Exchange rate source: Current onramp API`);
-      console.log(`  - Token type: Solana USDC (direct)`);
-      
-      return {
-          cryptoSymbol: 'USDC',
-          cryptoAmount: actualUsdcAmount,
-          network: 'solana',
-          tokenAddress: tokenInfo.contractAddress,
-          decimals: tokenInfo.decimals || 6,
-          isNativeToken: false,
-          
-          // Pricing information
-          unitPriceInNgn: unitPriceInNgn,
-          totalNgnNeeded: actualNgnValue,
-          exchangeRate: unitPriceInNgn,
-          ngnToTokenRate: 1 / unitPriceInNgn,
-          
-          // USDC conversion data
-          usdcValue: actualUsdcAmount,
-          pricePerTokenUsdc: pricePerTokenUsdc,
-          usdcToNgnRate: usdcToNgnRate,
-          
-          // Validation results - all true for direct USDC
-          jupiterSupported: true, // Not needed but mark as supported
-          meetsMinTransactionValue: meetsMinTransactionValue,
-          hasAdequatePoolLiquidity: true, // No liquidity needed for direct purchase
-          liquidityWarning: false,
-          canProcessOnramp: true,
-          bestRoute: 'Direct USDC Purchase',
-          priceImpact: 0, // No price impact for direct purchase
-          
-          // Swap routing information (not needed for direct USDC)
-          swapRoute: {
-              inputToken: tokenInfo.contractAddress,
-              outputToken: tokenInfo.contractAddress, // Same token
-              route: 'Direct USDC Purchase',
-              expectedUsdcOut: actualUsdcAmount,
-              priceImpact: 0,
-              routeSteps: [],
-              jupiterQuote: null,
-              network: 'solana',
-              isDirect: true
-          },
-          
-          // Formatting
-          formattedPrice: `₦${unitPriceInNgn.toLocaleString()}`,
-          exchangeRateString: `1 USDC = ₦${unitPriceInNgn.toLocaleString()}`,
-          usdcRateString: `1 USDC = $1.00 USDC`,
-          currentUsdcRate: `1 USDC = ₦${usdcToNgnRate.toLocaleString()}`,
-          
-          // Metadata
-          timestamp: new Date(),
-          source: 'direct_usdc_purchase_with_current_rates',
-          rateSource: 'onramp_api',
-          validation: {
-              businessSupported: true,
-              jupiterSupported: true, // Not applicable but set to true
-              meetsMinValue: meetsMinTransactionValue,
-              hasLiquidity: true, // Not applicable for direct purchase
-              canSwap: false, // No swap needed
-              actualPurchaseAmount: actualUsdcAmount,
-              actualUsdcValue: actualUsdcAmount,
-              currentUsdcRate: usdcToNgnRate,
-              minimumUsdcRequired: 1.0,
-              minimumNgnRequired: Math.ceil(usdcToNgnRate * 1.0),
-              isNativeToken: false,
-              effectiveTokenAddress: tokenInfo.contractAddress,
-              priceImpact: 0,
-              routeSteps: 0,
-              isDirect: true
-          }
-      };
-      
-  } catch (error) {
-      console.error(`[SOLANA_USDC_DIRECT] Error processing direct USDC purchase:`, error.message);
-      throw error;
-  }
-}
-
 /**
  * NEW: Process Solana network tokens using Jupiter
  */
 async function processSolanaNetworkToken(cryptoSymbol, tokenInfo, cryptoAmount, customerNgnAmount = null) {
-  try {
-      console.log(`[SOLANA_TOKEN_PROCESSOR_FIXED] Processing Solana token: ${cryptoSymbol}`);
-      
-      // SPECIAL CASE: If customer wants USDC on Solana, no swap needed
-      const isUSDC = cryptoSymbol.toUpperCase() === 'USDC' || 
-                     tokenInfo.contractAddress === SOLANA_CONFIG.TOKENS.USDC;
-      
-      if (isUSDC) {
-          console.log(`[SOLANA_TOKEN_PROCESSOR_FIXED] 🪙 USDC detected - no swap needed, direct USDC purchase`);
-          return await processSolanaUSDCDirect(cryptoSymbol, tokenInfo, cryptoAmount, customerNgnAmount);
-      }
-      
-      // For non-USDC tokens, use Jupiter swap to USDC
-      console.log(`[SOLANA_TOKEN_PROCESSOR_FIXED] 🔄 Non-USDC token - will swap to USDC via Jupiter`);
-      
-      // Step 1: Get unit price using Jupiter
-      console.log(`[SOLANA_TOKEN_PROCESSOR_FIXED] Getting unit price for ${cryptoSymbol}...`);
-      const unitPriceResult = await solanaChecker.getTokenToUSDCPrice(tokenInfo.contractAddress, 1, {
-          verbose: false,
-          minLiquidityThreshold: 0
-      });
-      
-      if (!unitPriceResult.success) {
-          console.error(`[SOLANA_TOKEN_PROCESSOR_FIXED] ❌ Failed to get ${cryptoSymbol} unit price:`, unitPriceResult.error);
-          throw new Error(`Failed to get ${cryptoSymbol} price from Jupiter: ${unitPriceResult.error}`);
-      }
-      
-      console.log(`[SOLANA_TOKEN_PROCESSOR_FIXED] ✅ Unit price: 1 ${cryptoSymbol} = $${unitPriceResult.pricePerToken} USDC`);
-      
-      // Step 2: Get CURRENT USDC to NGN rate
-      console.log(`[SOLANA_TOKEN_PROCESSOR_FIXED] Getting current USDC-NGN exchange rate...`);
-      const usdcToNgnRate = await getUSDCToNGNRate();
-      console.log(`[SOLANA_TOKEN_PROCESSOR_FIXED] ✅ Current USDC rate: ₦${usdcToNgnRate.toLocaleString()}`);
-      
-      // Step 3: Calculate customer's actual token amount if NGN amount provided
-      let actualTokenAmount = cryptoAmount;
-      let actualUsdcValue = unitPriceResult.usdcValue * cryptoAmount;
-      
-      if (customerNgnAmount) {
-          const customerUsdcAmount = customerNgnAmount / usdcToNgnRate;
-          actualTokenAmount = customerUsdcAmount / unitPriceResult.pricePerToken;
-          actualUsdcValue = customerUsdcAmount;
-          
-          console.log(`[SOLANA_TOKEN_PROCESSOR_FIXED] Customer purchase calculation with CURRENT rates:`);
-          console.log(`  - Customer NGN: ₦${customerNgnAmount.toLocaleString()}`);
-          console.log(`  - Current USDC rate: ₦${usdcToNgnRate.toLocaleString()}`);
-          console.log(`  - USDC equivalent: $${customerUsdcAmount.toFixed(6)}`);
-          console.log(`  - Token unit price: $${unitPriceResult.pricePerToken.toFixed(8)} USDC`);
-          console.log(`  - Token amount: ${actualTokenAmount.toFixed(8)} ${cryptoSymbol}`);
-          console.log(`  - Total USDC value: $${actualUsdcValue.toFixed(6)}`);
-      }
-      
-      // Step 4: Check minimum transaction value
-      const meetsMinTransactionValue = actualUsdcValue >= 1.0;
-      
-      if (!meetsMinTransactionValue) {
-          const minimumNgnRequired = Math.ceil(usdcToNgnRate * 1.0);
-          console.error(`[SOLANA_TOKEN_PROCESSOR_FIXED] ❌ Transaction value too small for ${cryptoSymbol}`);
-          throw new Error(`Transaction value ($${actualUsdcValue.toFixed(6)}) is below minimum ($1 USDC = ₦${minimumNgnRequired.toLocaleString()}). Minimum purchase: ₦${minimumNgnRequired.toLocaleString()}`);
-      }
-      
-      console.log(`[SOLANA_TOKEN_PROCESSOR_FIXED] ✅ Transaction meets minimum value: $${actualUsdcValue.toFixed(6)} USDC (>$1.0 required)`);
-      
-      // Step 5: Check liquidity for large orders
-      const hasAdequatePoolLiquidity = unitPriceResult.hasAdequatePoolLiquidity;
-      if (!hasAdequatePoolLiquidity && actualUsdcValue > 100) {
-          console.log(`[SOLANA_TOKEN_PROCESSOR_FIXED] ⚠️  Large order with limited liquidity - may experience slippage`);
-      }
-      
-      // Step 6: Calculate final NGN values using CURRENT rate
-      const totalNgnValue = actualUsdcValue * usdcToNgnRate;
-      const unitPriceInNgn = (unitPriceResult.pricePerToken * usdcToNgnRate);
-      
-      console.log(`[SOLANA_TOKEN_PROCESSOR_FIXED] ✅ Final calculation with CURRENT rates:`);
-      console.log(`  - Unit price: $${unitPriceResult.pricePerToken.toFixed(8)} USDC = ₦${unitPriceInNgn.toLocaleString()}`);
-      console.log(`  - Customer gets: ${actualTokenAmount.toFixed(8)} ${cryptoSymbol}`);
-      console.log(`  - Total value: $${actualUsdcValue.toFixed(6)} USDC = ₦${totalNgnValue.toLocaleString()}`);
-      console.log(`  - Exchange rate source: Current onramp API`);
-      console.log(`  - Token type: Solana SPL Token`);
-      
-      // Step 7: Prepare swap routing information for Jupiter
-      const swapRoute = {
-          inputToken: tokenInfo.contractAddress,
-          outputToken: SOLANA_CONFIG.TOKENS.USDC,
-          route: unitPriceResult.bestRoute,
-          expectedUsdcOut: actualUsdcValue,
-          priceImpact: unitPriceResult.priceImpact,
-          routeSteps: unitPriceResult.routeSteps,
-          jupiterQuote: unitPriceResult.jupiterQuote,
-          network: 'solana'
-      };
-      
-      return {
-          cryptoSymbol: cryptoSymbol.toUpperCase(),
-          cryptoAmount: actualTokenAmount,
-          network: 'solana',
-          tokenAddress: tokenInfo.contractAddress,
-          decimals: tokenInfo.decimals || 9,
-          isNativeToken: tokenInfo.contractAddress === SOLANA_CONFIG.TOKENS.SOL,
-          
-          // Pricing information with CURRENT rates
-          unitPriceInNgn: unitPriceInNgn,
-          totalNgnNeeded: totalNgnValue,
-          exchangeRate: unitPriceInNgn,
-          ngnToTokenRate: 1 / unitPriceInNgn,
-          
-          // USDC conversion data with CURRENT rate
-          usdcValue: actualUsdcValue,
-          pricePerTokenUsdc: unitPriceResult.pricePerToken,
-          usdcToNgnRate: usdcToNgnRate,
-          
-          // Validation results
-          jupiterSupported: true,
-          meetsMinTransactionValue: meetsMinTransactionValue,
-          hasAdequatePoolLiquidity: hasAdequatePoolLiquidity,
-          liquidityWarning: !hasAdequatePoolLiquidity && actualUsdcValue > 100,
-          poolLiquidityInfo: unitPriceResult.poolLiquidityInfo,
-          canProcessOnramp: true,
-          bestRoute: unitPriceResult.bestRoute,
-          priceImpact: unitPriceResult.priceImpact,
-          
-          // Swap routing information
-          swapRoute: swapRoute,
-          
-          // Formatting with CURRENT rates
-          formattedPrice: `₦${unitPriceInNgn.toLocaleString()}`,
-          exchangeRateString: `1 ${cryptoSymbol} = ₦${unitPriceInNgn.toLocaleString()}`,
-          usdcRateString: `1 ${cryptoSymbol} = $${unitPriceResult.pricePerToken.toFixed(6)} USDC`,
-          currentUsdcRate: `1 USDC = ₦${usdcToNgnRate.toLocaleString()}`,
-          
-          // Metadata
-          timestamp: new Date(),
-          source: 'jupiter_dex_with_current_rates',
-          rateSource: 'onramp_api',
-          validation: {
-              businessSupported: true,
-              jupiterSupported: true,
-              meetsMinValue: meetsMinTransactionValue,
-              hasLiquidity: hasAdequatePoolLiquidity,
-              canSwap: true,
-              actualPurchaseAmount: actualTokenAmount,
-              actualUsdcValue: actualUsdcValue,
-              currentUsdcRate: usdcToNgnRate,
-              minimumUsdcRequired: 1.0,
-              minimumNgnRequired: Math.ceil(usdcToNgnRate * 1.0),
-              isNativeToken: tokenInfo.contractAddress === SOLANA_CONFIG.TOKENS.SOL,
-              effectiveTokenAddress: tokenInfo.contractAddress,
-              priceImpact: unitPriceResult.priceImpact,
-              routeSteps: unitPriceResult.routeSteps
-          }
-      };
-      
-  } catch (error) {
-      console.error(`[SOLANA_TOKEN_PROCESSOR_FIXED] Error processing Solana token ${cryptoSymbol}:`, error.message);
-      throw error;
-  }
+    try {
+        console.log(`[SOLANA_TOKEN_PROCESSOR] Processing Solana token: ${cryptoSymbol}`);
+        
+        // Step 1: Get unit price using Jupiter
+        console.log(`[SOLANA_TOKEN_PROCESSOR] Getting unit price for ${cryptoSymbol}...`);
+        const unitPriceResult = await solanaChecker.getTokenToUSDCPrice(tokenInfo.contractAddress, 1, {
+            verbose: false,
+            minLiquidityThreshold: 0
+        });
+        
+        if (!unitPriceResult.success) {
+            console.error(`[SOLANA_TOKEN_PROCESSOR] ❌ Failed to get ${cryptoSymbol} unit price:`, unitPriceResult.error);
+            throw new Error(`Failed to get ${cryptoSymbol} price from Jupiter: ${unitPriceResult.error}`);
+        }
+        
+        console.log(`[SOLANA_TOKEN_PROCESSOR] ✅ Unit price: 1 ${cryptoSymbol} = $${unitPriceResult.pricePerToken} USDC`);
+        
+        // Step 2: Get CURRENT USDC to NGN rate
+        console.log(`[SOLANA_TOKEN_PROCESSOR] Getting current USDC-NGN exchange rate...`);
+        const usdcToNgnRate = await getUSDCToNGNRate();
+        console.log(`[SOLANA_TOKEN_PROCESSOR] ✅ Current USDC rate: ₦${usdcToNgnRate.toLocaleString()}`);
+        
+        // Step 3: Calculate customer's actual token amount if NGN amount provided
+        let actualTokenAmount = cryptoAmount;
+        let actualUsdcValue = unitPriceResult.usdcValue * cryptoAmount;
+        
+        if (customerNgnAmount) {
+            const customerUsdcAmount = customerNgnAmount / usdcToNgnRate;
+            actualTokenAmount = customerUsdcAmount / unitPriceResult.pricePerToken;
+            actualUsdcValue = customerUsdcAmount;
+            
+            console.log(`[SOLANA_TOKEN_PROCESSOR] Customer purchase calculation with CURRENT rates:`);
+            console.log(`  - Customer NGN: ₦${customerNgnAmount.toLocaleString()}`);
+            console.log(`  - Current USDC rate: ₦${usdcToNgnRate.toLocaleString()}`);
+            console.log(`  - USDC equivalent: $${customerUsdcAmount.toFixed(6)}`);
+            console.log(`  - Token unit price: $${unitPriceResult.pricePerToken.toFixed(8)} USDC`);
+            console.log(`  - Token amount: ${actualTokenAmount.toFixed(8)} ${cryptoSymbol}`);
+            console.log(`  - Total USDC value: $${actualUsdcValue.toFixed(6)}`);
+        }
+        
+        // Step 4: Check minimum transaction value
+        const meetsMinTransactionValue = actualUsdcValue >= 1.0;
+        
+        if (!meetsMinTransactionValue) {
+            const minimumNgnRequired = Math.ceil(usdcToNgnRate * 1.0);
+            console.error(`[SOLANA_TOKEN_PROCESSOR] ❌ Transaction value too small for ${cryptoSymbol}`);
+            throw new Error(`Transaction value ($${actualUsdcValue.toFixed(6)}) is below minimum ($1 USDC = ₦${minimumNgnRequired.toLocaleString()}). Minimum purchase: ₦${minimumNgnRequired.toLocaleString()}`);
+        }
+        
+        console.log(`[SOLANA_TOKEN_PROCESSOR] ✅ Transaction meets minimum value: $${actualUsdcValue.toFixed(6)} USDC (>$1.0 required)`);
+        
+        // Step 5: Check liquidity for large orders
+        const hasAdequatePoolLiquidity = unitPriceResult.hasAdequatePoolLiquidity;
+        if (!hasAdequatePoolLiquidity && actualUsdcValue > 100) {
+            console.log(`[SOLANA_TOKEN_PROCESSOR] ⚠️  Large order with limited liquidity - may experience slippage`);
+        }
+        
+        // Step 6: Calculate final NGN values using CURRENT rate
+        const totalNgnValue = actualUsdcValue * usdcToNgnRate;
+        const unitPriceInNgn = (unitPriceResult.pricePerToken * usdcToNgnRate);
+        
+        console.log(`[SOLANA_TOKEN_PROCESSOR] ✅ Final calculation with CURRENT rates:`);
+        console.log(`  - Unit price: $${unitPriceResult.pricePerToken.toFixed(8)} USDC = ₦${unitPriceInNgn.toLocaleString()}`);
+        console.log(`  - Customer gets: ${actualTokenAmount.toFixed(8)} ${cryptoSymbol}`);
+        console.log(`  - Total value: $${actualUsdcValue.toFixed(6)} USDC = ₦${totalNgnValue.toLocaleString()}`);
+        console.log(`  - Exchange rate source: Current onramp API`);
+        console.log(`  - Token type: Solana SPL Token`);
+        
+        // Step 7: Prepare swap routing information for Jupiter
+        const swapRoute = {
+            inputToken: tokenInfo.contractAddress,
+            outputToken: SOLANA_CONFIG.TOKENS.USDC,
+            route: unitPriceResult.bestRoute,
+            expectedUsdcOut: actualUsdcValue,
+            priceImpact: unitPriceResult.priceImpact,
+            routeSteps: unitPriceResult.routeSteps,
+            jupiterQuote: unitPriceResult.jupiterQuote,
+            network: 'solana'
+        };
+        
+        return {
+            cryptoSymbol: cryptoSymbol.toUpperCase(),
+            cryptoAmount: actualTokenAmount,
+            network: 'solana',
+            tokenAddress: tokenInfo.contractAddress,
+            decimals: tokenInfo.decimals || 9,
+            isNativeToken: tokenInfo.contractAddress === SOLANA_CONFIG.TOKENS.SOL,
+            
+            // Pricing information with CURRENT rates
+            unitPriceInNgn: unitPriceInNgn,
+            totalNgnNeeded: totalNgnValue,
+            exchangeRate: unitPriceInNgn,
+            ngnToTokenRate: 1 / unitPriceInNgn,
+            
+            // USDC conversion data with CURRENT rate
+            usdcValue: actualUsdcValue,
+            pricePerTokenUsdc: unitPriceResult.pricePerToken,
+            usdcToNgnRate: usdcToNgnRate,
+            
+            // Validation results
+            jupiterSupported: true,
+            meetsMinTransactionValue: meetsMinTransactionValue,
+            hasAdequatePoolLiquidity: hasAdequatePoolLiquidity,
+            liquidityWarning: !hasAdequatePoolLiquidity && actualUsdcValue > 100,
+            poolLiquidityInfo: unitPriceResult.poolLiquidityInfo,
+            canProcessOnramp: true,
+            bestRoute: unitPriceResult.bestRoute,
+            priceImpact: unitPriceResult.priceImpact,
+            
+            // Swap routing information
+            swapRoute: swapRoute,
+            
+            // Formatting with CURRENT rates
+            formattedPrice: `₦${unitPriceInNgn.toLocaleString()}`,
+            exchangeRateString: `1 ${cryptoSymbol} = ₦${unitPriceInNgn.toLocaleString()}`,
+            usdcRateString: `1 ${cryptoSymbol} = $${unitPriceResult.pricePerToken.toFixed(6)} USDC`,
+            currentUsdcRate: `1 USDC = ₦${usdcToNgnRate.toLocaleString()}`,
+            
+            // Metadata
+            timestamp: new Date(),
+            source: 'jupiter_dex_with_current_rates',
+            rateSource: 'onramp_api',
+            validation: {
+                businessSupported: true,
+                jupiterSupported: true,
+                meetsMinValue: meetsMinTransactionValue,
+                hasLiquidity: hasAdequatePoolLiquidity,
+                canSwap: true,
+                actualPurchaseAmount: actualTokenAmount,
+                actualUsdcValue: actualUsdcValue,
+                currentUsdcRate: usdcToNgnRate,
+                minimumUsdcRequired: 1.0,
+                minimumNgnRequired: Math.ceil(usdcToNgnRate * 1.0),
+                isNativeToken: tokenInfo.contractAddress === SOLANA_CONFIG.TOKENS.SOL,
+                effectiveTokenAddress: tokenInfo.contractAddress,
+                priceImpact: unitPriceResult.priceImpact,
+                routeSteps: unitPriceResult.routeSteps
+            }
+        };
+        
+    } catch (error) {
+        console.error(`[SOLANA_TOKEN_PROCESSOR] Error processing Solana token ${cryptoSymbol}:`, error.message);
+        throw error;
+    }
 }
 
 /**
