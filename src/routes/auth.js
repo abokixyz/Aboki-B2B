@@ -26,6 +26,13 @@ const { authenticateToken } = require('../middleware/auth'); // Use destructurin
  *         isVerified:
  *           type: boolean
  *           description: Email verification status
+ *         verificationStatus:
+ *           type: string
+ *           enum: [pending, approved, rejected, suspended]
+ *           description: Admin verification status
+ *         isApiEnabled:
+ *           type: boolean
+ *           description: API access enabled status
  *         createdAt:
  *           type: string
  *           format: date-time
@@ -58,6 +65,22 @@ const { authenticateToken } = require('../middleware/auth'); // Use destructurin
  *           type: string
  *         error:
  *           type: string
+ *     VerificationResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *         message:
+ *           type: string
+ *         data:
+ *           type: object
+ *           properties:
+ *             isVerified:
+ *               type: boolean
+ *             nextSteps:
+ *               type: string
+ *             verificationStatus:
+ *               type: string
  *   securitySchemes:
  *     bearerAuth:
  *       type: http
@@ -181,6 +204,144 @@ router.post('/signup', authController.signup);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.post('/login', authController.login);
+
+/**
+ * @swagger
+ * /api/v1/auth/verify-email:
+ *   post:
+ *     summary: Verify user email with token
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: Email verification token received via email
+ *                 example: "abc123def456ghi789jkl012mno345pqr678stu901vwx234yz"
+ *     responses:
+ *       200:
+ *         description: Email verified successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/VerificationResponse'
+ *       400:
+ *         description: Bad request - missing token or invalid/expired token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post('/verify-email', authController.verifyEmail);
+
+/**
+ * @swagger
+ * /api/v1/auth/resend-verification:
+ *   post:
+ *     summary: Resend email verification token
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: user@example.com
+ *     responses:
+ *       200:
+ *         description: Verification email resent (if user exists and not already verified)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Bad request - validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post('/resend-verification', authController.resendVerification);
+
+/**
+ * @swagger
+ * /api/v1/auth/verification-status:
+ *   get:
+ *     summary: Get detailed verification status
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Verification status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     verificationStatus:
+ *                       type: string
+ *                       enum: [pending, approved, rejected, suspended]
+ *                     isApiEnabled:
+ *                       type: boolean
+ *                     canAccessApi:
+ *                       type: boolean
+ *                     accountStatus:
+ *                       type: string
+ *                     message:
+ *                       type: string
+ *                     nextSteps:
+ *                       type: string
+ *       401:
+ *         description: Unauthorized - invalid token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/verification-status', authenticateToken, authController.getVerificationStatus);
 
 /**
  * @swagger
@@ -425,5 +586,67 @@ router.get('/profile', authenticateToken, authController.getProfile);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.post('/logout', authenticateToken, authController.logout);
+
+// Development-only route to get verification token (remove in production)
+if (process.env.NODE_ENV === 'development') {
+  /**
+   * @swagger
+   * /api/v1/auth/dev/get-verification-token/{email}:
+   *   get:
+   *     summary: Get verification token for user (DEVELOPMENT ONLY)
+   *     tags: [Authentication]
+   *     parameters:
+   *       - in: path
+   *         name: email
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: email
+   *         description: User email
+   *     responses:
+   *       200:
+   *         description: Verification token retrieved
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     verificationToken:
+   *                       type: string
+   *                     expires:
+   *                       type: string
+   *                       format: date-time
+   *                     isExpired:
+   *                       type: boolean
+   *       404:
+   *         description: User not found
+   */
+  router.get('/dev/get-verification-token/:email', async (req, res) => {
+    try {
+      const { User } = require('../models');
+      const user = await User.findOne({ email: req.params.email.toLowerCase() });
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+      
+      res.json({
+        success: true,
+        data: {
+          verificationToken: user.emailVerificationToken,
+          expires: user.emailVerificationExpiry,
+          isExpired: user.emailVerificationExpiry ? user.emailVerificationExpiry < new Date() : true,
+          isAlreadyVerified: user.isVerified
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+}
 
 module.exports = router;
