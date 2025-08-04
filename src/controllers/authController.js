@@ -153,6 +153,12 @@ class AuthController {
 
       await newUser.save();
 
+      // Log verification token in development mode
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`🔐 Verification token for ${email}: ${verificationToken}`);
+        console.log(`🔗 Verification URL: http://localhost:3002/verify-email?token=${verificationToken}`);
+      }
+
       // Send welcome email with verification
       try {
         await EmailService.sendWelcomeEmail(fullName, email.toLowerCase(), verificationToken);
@@ -214,7 +220,14 @@ class AuthController {
           emailVerification: 'Please verify your email address',
           adminVerification: 'Your account requires admin verification for API access',
           expectedWaitTime: '1-2 business days'
-        }
+        },
+        // Include verification token in development mode only
+        ...(process.env.NODE_ENV === 'development' && { 
+          dev: { 
+            verificationToken,
+            verificationUrl: `http://localhost:3002/verify-email?token=${verificationToken}`
+          } 
+        })
       });
 
     } catch (error) {
@@ -334,6 +347,135 @@ class AuthController {
       res.status(500).json({
         success: false,
         message: 'Internal server error during login',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  // Verify email
+  async verifyEmail(req, res) {
+    try {
+      const { token } = req.body;
+
+      if (!token) {
+        return res.status(400).json({
+          success: false,
+          message: 'Verification token is required'
+        });
+      }
+
+      // Find user with valid verification token
+      const user = await User.findOne({
+        emailVerificationToken: token,
+        emailVerificationExpiry: { $gt: new Date() }
+      });
+
+      if (!user) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid or expired verification token'
+        });
+      }
+
+      // Update user verification status
+      user.isVerified = true;
+      user.emailVerificationToken = undefined;
+      user.emailVerificationExpiry = undefined;
+      user.verifiedAt = new Date();
+      user.updatedAt = new Date();
+      await user.save();
+
+      // Get current verification info
+      const verificationInfo = getDetailedVerificationInfo(user);
+
+      res.json({
+        success: true,
+        message: 'Email verified successfully',
+        data: {
+          isVerified: true,
+          nextSteps: verificationInfo.nextSteps,
+          verificationStatus: user.verificationStatus || 'pending'
+        }
+      });
+
+    } catch (error) {
+      console.error('Email verification error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error during email verification',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  // Resend email verification
+  async resendVerification(req, res) {
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email is required'
+        });
+      }
+
+      const user = await User.findOne({ email: email.toLowerCase() });
+      if (!user) {
+        // Return success for security (don't reveal if user exists)
+        return res.json({
+          success: true,
+          message: 'If an account exists, a verification email has been sent'
+        });
+      }
+
+      if (user.isVerified) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email is already verified'
+        });
+      }
+
+      // Generate new verification token
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+      const verificationTokenExpiry = new Date(Date.now() + 24 * 3600000); // 24 hours
+
+      user.emailVerificationToken = verificationToken;
+      user.emailVerificationExpiry = verificationTokenExpiry;
+      user.updatedAt = new Date();
+      await user.save();
+
+      // Log verification token in development mode
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`🔐 Resent verification token for ${email}: ${verificationToken}`);
+        console.log(`🔗 Verification URL: http://localhost:3002/verify-email?token=${verificationToken}`);
+      }
+
+      // Send verification email
+      try {
+        await EmailService.sendWelcomeEmail(user.fullName, user.email, verificationToken);
+        console.log(`✅ Verification email resent to ${user.email}`);
+      } catch (emailError) {
+        console.error('❌ Failed to resend verification email:', emailError);
+      }
+
+      res.json({
+        success: true,
+        message: 'If an account exists, a verification email has been sent',
+        // Include token in development mode only
+        ...(process.env.NODE_ENV === 'development' && { 
+          dev: { 
+            verificationToken,
+            verificationUrl: `http://localhost:3002/verify-email?token=${verificationToken}`
+          } 
+        })
+      });
+
+    } catch (error) {
+      console.error('Resend verification error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
@@ -620,61 +762,6 @@ class AuthController {
       res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-  }
-
-  // Verify email
-  async verifyEmail(req, res) {
-    try {
-      const { token } = req.body;
-
-      if (!token) {
-        return res.status(400).json({
-          success: false,
-          message: 'Verification token is required'
-        });
-      }
-
-      // Find user with valid verification token
-      const user = await User.findOne({
-        emailVerificationToken: token,
-        emailVerificationExpiry: { $gt: new Date() }
-      });
-
-      if (!user) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid or expired verification token'
-        });
-      }
-
-      // Update user verification status
-      user.isVerified = true;
-      user.emailVerificationToken = undefined;
-      user.emailVerificationExpiry = undefined;
-      user.updatedAt = new Date();
-      await user.save();
-
-      // Get current verification info
-      const verificationInfo = getDetailedVerificationInfo(user);
-
-      res.json({
-        success: true,
-        message: 'Email verified successfully',
-        data: {
-          isVerified: true,
-          nextSteps: verificationInfo.nextSteps,
-          verificationStatus: user.verificationStatus || 'pending'
-        }
-      });
-
-    } catch (error) {
-      console.error('Email verification error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Internal server error during email verification',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
