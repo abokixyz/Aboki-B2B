@@ -37,7 +37,7 @@
         "mongoose": "^8.16.5",
         "multer": "^2.0.1",
         "node-fetch": "^2.6.7",
-        "nodemailer": "^7.0.3",
+        "nodemailer": "^7.0.6",
         "papaparse": "^5.5.3",
         "redis": "^5.5.6",
         "swagger-jsdoc": "^6.2.8",

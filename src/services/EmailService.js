@@ -16,8 +16,8 @@ class GmailEmailService {
       return;
     }
 
-    // Initialize Gmail transporter
-    this.transporter = nodemailer.createTransporter({
+    // Initialize Gmail transporter - FIXED: Changed from createTransporter to createTransport
+    this.transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         user: process.env.GMAIL_USER, // Your Gmail address
