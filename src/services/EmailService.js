@@ -1,39 +1,37 @@
-const SibApiV3Sdk = require('@sendinblue/client');
+const nodemailer = require('nodemailer');
 
-class BrevoEmailService {
+class GmailEmailService {
   constructor() {
     // Check if email is enabled
     this.emailEnabled = process.env.EMAIL_ENABLED !== 'false';
     
-    console.log('📧 Brevo Email Service Debug:');
+    console.log('📧 Gmail Email Service Debug:');
     console.log('- Email enabled:', this.emailEnabled);
-    console.log('- BREVO_API_KEY exists:', process.env.BREVO_API_KEY ? 'YES' : 'NO');
-    console.log('- BREVO_SENDER_EMAIL:', process.env.BREVO_SENDER_EMAIL);
-    console.log('- BREVO_SENDER_NAME:', process.env.BREVO_SENDER_NAME);
+    console.log('- GMAIL_USER exists:', process.env.GMAIL_USER ? 'YES' : 'NO');
+    console.log('- GMAIL_APP_PASSWORD exists:', process.env.GMAIL_APP_PASSWORD ? 'YES' : 'NO');
+    console.log('- GMAIL_FROM_NAME:', process.env.GMAIL_FROM_NAME || 'ABOKI');
 
     if (!this.emailEnabled) {
       console.log('📧 Email service disabled for development');
       return;
     }
 
-    // Initialize Brevo API client
-    this.apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
-    
-    // Configure API key
-    if (process.env.BREVO_API_KEY) {
-      this.apiInstance.setApiKey(
-        SibApiV3Sdk.TransactionalEmailsApiApiKeys.apiKey,
-        process.env.BREVO_API_KEY
-      );
-    }
+    // Initialize Gmail transporter
+    this.transporter = nodemailer.createTransporter({
+      service: 'gmail',
+      auth: {
+        user: process.env.GMAIL_USER, // Your Gmail address
+        pass: process.env.GMAIL_APP_PASSWORD // Your Gmail app password
+      }
+    });
     
     // Default sender configuration
     this.defaultSender = {
-      name: process.env.BREVO_SENDER_NAME || "ABOKI",
-      email: process.env.BREVO_SENDER_EMAIL || "hello@aboki.xyz"
+      name: process.env.GMAIL_FROM_NAME || "ABOKI",
+      email: process.env.GMAIL_USER || "your-email@gmail.com"
     };
     
-    console.log('✅ Brevo Email Service initialized');
+    console.log('✅ Gmail Email Service initialized');
   }
 
   async testConnection() {
@@ -42,18 +40,20 @@ class BrevoEmailService {
       return true;
     }
 
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+      console.log('⚠️  Gmail credentials not configured');
+      return false;
+    }
+
     try {
-      console.log('🔍 Testing Brevo SDK connection...');
+      console.log('🔍 Testing Gmail connection...');
       
-      // Test by getting account info
-      const accountApi = new SibApiV3Sdk.AccountApi();
-      accountApi.setApiKey(SibApiV3Sdk.AccountApiApiKeys.apiKey, process.env.BREVO_API_KEY);
-      
-      await accountApi.getAccount();
-      console.log('✅ Brevo SDK connection test successful');
+      // Verify SMTP connection
+      await this.transporter.verify();
+      console.log('✅ Gmail connection test successful');
       return true;
     } catch (error) {
-      console.error('❌ Brevo SDK connection test failed:', error.message);
+      console.error('❌ Gmail connection test failed:', error.message);
       return false;
     }
   }
@@ -67,41 +67,40 @@ class BrevoEmailService {
       return { success: true, messageId: 'disabled' };
     }
 
-    if (!process.env.BREVO_API_KEY) {
-      console.log('⚠️  BREVO_API_KEY not configured - skipping email');
-      return { success: true, messageId: 'no-api-key' };
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+      console.log('⚠️  Gmail credentials not configured - skipping email');
+      return { success: true, messageId: 'no-credentials' };
     }
 
     try {
-      console.log(`📤 Sending email via Brevo SDK to: ${options.to}`);
+      console.log(`📤 Sending email via Gmail to: ${options.to}`);
       
-      const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
-      
-      sendSmtpEmail.subject = options.subject;
-      sendSmtpEmail.sender = this.defaultSender;
-      sendSmtpEmail.to = [{ 
-        email: options.to, 
-        name: options.name || options.to.split('@')[0] 
-      }];
-      sendSmtpEmail.htmlContent = options.html;
+      const mailOptions = {
+        from: `"${this.defaultSender.name}" <${this.defaultSender.email}>`,
+        to: options.to,
+        subject: options.subject,
+        html: options.html,
+        // Optional: Add reply-to if different from sender
+        replyTo: process.env.REPLY_TO_EMAIL || this.defaultSender.email
+      };
 
-      const response = await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+      const result = await this.transporter.sendMail(mailOptions);
       
-      console.log(`✅ Email sent successfully to ${options.to}:`, response.body?.messageId);
+      console.log(`✅ Email sent successfully to ${options.to}:`, result.messageId);
       
       return { 
         success: true, 
-        messageId: response.body?.messageId || 'sent'
+        messageId: result.messageId
       };
     } catch (error) {
-      console.error('❌ Brevo email sending failed:', error.response?.body || error.message);
+      console.error('❌ Gmail email sending failed:', error.message);
       
       // Don't throw error - just log it so auth flow continues
       console.log('⚠️  Authentication will continue without email');
       
       return { 
         success: false, 
-        error: error.response?.body || error.message
+        error: error.message
       };
     }
   }
@@ -504,4 +503,4 @@ class BrevoEmailService {
   }
 }
 
-module.exports = new BrevoEmailService();
+module.exports = new GmailEmailService();
