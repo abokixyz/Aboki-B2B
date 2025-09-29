@@ -103,6 +103,28 @@ const { authenticateAdmin, requireRole } = require('../middleware/adminAuth');
  *           items:
  *             type: string
  *           example: ["user_verification", "business_verification"]
+ *     AdminForgotPasswordRequest:
+ *       type: object
+ *       required:
+ *         - email
+ *       properties:
+ *         email:
+ *           type: string
+ *           format: email
+ *           example: admin@company.com
+ *     AdminResetPasswordRequest:
+ *       type: object
+ *       required:
+ *         - token
+ *         - newPassword
+ *       properties:
+ *         token:
+ *           type: string
+ *           example: reset-token-here
+ *         newPassword:
+ *           type: string
+ *           minLength: 8
+ *           example: newSecurePassword123
  *     AdminErrorResponse:
  *       type: object
  *       properties:
@@ -183,6 +205,111 @@ const { authenticateAdmin, requireRole } = require('../middleware/adminAuth');
  *               $ref: '#/components/schemas/AdminErrorResponse'
  */
 router.post('/login', adminAuthController.login);
+
+/**
+ * @swagger
+ * /api/v1/admin/auth/forgot-password:
+ *   post:
+ *     summary: Request admin password reset
+ *     description: Send password reset email to admin
+ *     tags: [Admin Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/AdminForgotPasswordRequest'
+ *     responses:
+ *       200:
+ *         description: Password reset email sent
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: If an admin account exists with that email, a password reset link has been sent
+ *       400:
+ *         description: Bad request - validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AdminErrorResponse'
+ *       429:
+ *         description: Too many reset requests
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                 retryAfter:
+ *                   type: integer
+ *                   description: Seconds until next attempt allowed
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AdminErrorResponse'
+ */
+router.post('/forgot-password', adminAuthController.forgotPassword);
+
+/**
+ * @swagger
+ * /api/v1/admin/auth/reset-password:
+ *   post:
+ *     summary: Reset admin password
+ *     description: Reset admin password using reset token
+ *     tags: [Admin Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/AdminResetPasswordRequest'
+ *     responses:
+ *       200:
+ *         description: Password reset successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Password reset successfully
+ *       400:
+ *         description: Bad request - validation error or invalid token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AdminErrorResponse'
+ *       404:
+ *         description: Invalid or expired reset token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AdminErrorResponse'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AdminErrorResponse'
+ */
+router.post('/reset-password', adminAuthController.resetPassword);
 
 /**
  * @swagger

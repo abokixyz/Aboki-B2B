@@ -1,7 +1,9 @@
 // controllers/adminAuthController.js
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { Admin } = require('../models');
+const emailService = require('../services/EmailService'); // Adjust path as needed
 
 class AdminAuthController {
   // Admin login
@@ -138,6 +140,192 @@ class AdminAuthController {
       res.status(500).json({
         success: false,
         message: 'Internal server error during admin login',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  // Admin forgot password
+  async forgotPassword(req, res) {
+    try {
+      const { email } = req.body;
+
+      // Validation
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email is required'
+        });
+      }
+
+      // Email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid email format'
+        });
+      }
+
+      // Find admin
+      const admin = await Admin.findOne({ 
+        email: email.toLowerCase(),
+        isActive: true 
+      });
+
+      // Always return success message to prevent email enumeration
+      const successMessage = 'If an admin account exists with that email, a password reset link has been sent';
+
+      if (!admin) {
+        // Log attempt for security monitoring
+        console.log(`🔐 Password reset attempted for non-existent admin: ${email}`);
+        
+        return res.json({
+          success: true,
+          message: successMessage
+        });
+      }
+
+      // Check for recent reset requests (rate limiting)
+      const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+      if (admin.resetPasswordExpiry && admin.resetPasswordExpiry > fifteenMinutesAgo) {
+        const retryAfter = Math.ceil((admin.resetPasswordExpiry - Date.now()) / 1000);
+        return res.status(429).json({
+          success: false,
+          message: 'A password reset email was recently sent. Please wait before requesting another.',
+          retryAfter
+        });
+      }
+
+      // Generate reset token
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+      // Set token expiry (10 minutes for security)
+      const tokenExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+      // Save reset token to admin
+      admin.resetPasswordToken = hashedToken;
+      admin.resetPasswordExpiry = tokenExpiry;
+      await admin.save();
+
+      // Send reset email
+      try {
+        await this.sendPasswordResetEmail(admin.fullName, admin.email, resetToken);
+        
+        // Log reset request
+        console.log(`🔐 Admin password reset requested: ${admin.email} at ${new Date().toISOString()}`);
+        
+      } catch (emailError) {
+        console.error('Failed to send password reset email:', emailError);
+        // Clear reset token if email fails
+        admin.resetPasswordToken = undefined;
+        admin.resetPasswordExpiry = undefined;
+        await admin.save();
+        
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to send password reset email. Please try again later.'
+        });
+      }
+
+      res.json({
+        success: true,
+        message: successMessage
+      });
+
+    } catch (error) {
+      console.error('Admin forgot password error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error during password reset request',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  // Admin reset password
+  async resetPassword(req, res) {
+    try {
+      const { token, newPassword } = req.body;
+
+      // Validation
+      if (!token || !newPassword) {
+        return res.status(400).json({
+          success: false,
+          message: 'Reset token and new password are required'
+        });
+      }
+
+      if (newPassword.length < 8) {
+        return res.status(400).json({
+          success: false,
+          message: 'Password must be at least 8 characters long'
+        });
+      }
+
+      // Password strength validation
+      const passwordStrengthRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/;
+      if (!passwordStrengthRegex.test(newPassword)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character'
+        });
+      }
+
+      // Hash the token to find admin
+      const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+      // Find admin with valid reset token
+      const admin = await Admin.findOne({
+        resetPasswordToken: hashedToken,
+        resetPasswordExpiry: { $gt: Date.now() },
+        isActive: true
+      });
+
+      if (!admin) {
+        return res.status(404).json({
+          success: false,
+          message: 'Invalid or expired reset token'
+        });
+      }
+
+      // Hash new password
+      const saltRounds = parseInt(process.env.BCRYPT_ROUNDS) || 12;
+      const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+
+      // Update admin password and clear reset token
+      admin.password = hashedPassword;
+      admin.resetPasswordToken = undefined;
+      admin.resetPasswordExpiry = undefined;
+      admin.sessionToken = undefined; // Clear any existing sessions
+      admin.loginAttempts = 0; // Reset login attempts
+      admin.lockUntil = undefined; // Clear any account locks
+      admin.updatedAt = new Date();
+      
+      await admin.save();
+
+      // Send confirmation email
+      try {
+        await this.sendPasswordResetConfirmation(admin.fullName, admin.email);
+      } catch (emailError) {
+        console.error('Failed to send password reset confirmation email:', emailError);
+        // Don't fail the reset if confirmation email fails
+      }
+
+      // Log password reset
+      console.log(`🔐 Admin password reset completed: ${admin.email} at ${new Date().toISOString()}`);
+
+      res.json({
+        success: true,
+        message: 'Password reset successfully. You can now login with your new password.'
+      });
+
+    } catch (error) {
+      console.error('Admin reset password error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error during password reset',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
@@ -595,6 +783,28 @@ class AdminAuthController {
     } catch (error) {
       console.error('2FA verification error:', error);
       return false;
+    }
+  }
+
+  // Helper method to send password reset email
+  async sendPasswordResetEmail(fullName, email, resetToken) {
+    try {
+      // Use your email service - adjust based on your implementation
+      await emailService.sendAdminPasswordResetEmail(fullName, email, resetToken);
+    } catch (error) {
+      console.error('Send password reset email error:', error);
+      throw error;
+    }
+  }
+
+  // Helper method to send password reset confirmation email
+  async sendPasswordResetConfirmation(fullName, email) {
+    try {
+      // Use your email service - adjust based on your implementation
+      await emailService.sendAdminPasswordResetConfirmation(fullName, email);
+    } catch (error) {
+      console.error('Send password reset confirmation email error:', error);
+      throw error;
     }
   }
 

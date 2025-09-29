@@ -207,6 +207,8 @@ router.get('/', (req, res) => {
       adminAuth: {
         login: 'POST /api/v1/admin/auth/login',
         profile: 'GET /api/v1/admin/auth/profile',
+        forgotPassword: 'POST /api/v1/admin/auth/forgot-password', 
+        resetPassword: 'POST /api/v1/admin/auth/reset-password',         
         changePassword: 'POST /api/v1/admin/auth/change-password',
         createAdmin: 'POST /api/v1/admin/auth/create-admin',
         getAdmins: 'GET /api/v1/admin/auth/admins',
