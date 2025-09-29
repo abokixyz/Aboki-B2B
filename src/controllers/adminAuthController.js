@@ -211,7 +211,7 @@ class AdminAuthController {
 
       // Send reset email
       try {
-        await this.sendPasswordResetEmail(admin.fullName, admin.email, resetToken);
+        await emailService.sendAdminPasswordResetEmail(admin.fullName, admin.email, resetToken);
         
         // Log reset request
         console.log(`🔐 Admin password reset requested: ${admin.email} at ${new Date().toISOString()}`);
