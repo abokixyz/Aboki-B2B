@@ -2916,37 +2916,276 @@ getBusinessStats: async (req, res) => {
   }
 },
 
-// Enhanced Monnify webhook handler
+/**
+ * ENHANCED: Handle Monnify payment webhook
+ */
 handleMonnifyWebhook: async (req, res) => {
   const webhookId = Math.random().toString(36).substr(2, 8);
-  console.log(`[MONNIFY_WEBHOOK_${webhookId}] 📨 Processing enhanced Monnify webhook`);
+  const startTime = Date.now();
+  
+  console.log(`[MONNIFY_WEBHOOK_${webhookId}] ========================================`);
+  console.log(`[MONNIFY_WEBHOOK_${webhookId}] 📥 Received at: ${new Date().toISOString()}`);
+  console.log(`[MONNIFY_WEBHOOK_${webhookId}] 📦 Body:`, JSON.stringify(req.body, null, 2));
   
   try {
-    const startTime = Date.now();
-    const webhookData = req.body;
-    
-    console.log(`[MONNIFY_WEBHOOK_${webhookId}] 📦 Webhook payload received:`, JSON.stringify(webhookData, null, 2));
-    
-    // Enhanced webhook validation and processing logic here
-    // Your existing implementation...
-    
-    const processingTime = Date.now() - startTime;
-    console.log(`[MONNIFY_WEBHOOK_${webhookId}] ✅ Webhook processed successfully (${processingTime}ms)`);
-    
-    res.json({
-      success: true,
-      message: 'Enhanced webhook processed successfully',
-      requestId: webhookId,
-      processingTime
+    const { 
+      transactionReference,
+      paymentReference,
+      amountPaid,
+      paymentStatus,
+      paidOn,
+      paymentMethod
+    } = req.body;
+
+    if (!transactionReference || !paymentStatus) {
+      return res.status(400).json({ 
+        requestSuccessful: false,
+        responseMessage: 'Missing required fields' 
+      });
+    }
+
+    const order = await BusinessOnrampOrder.findOne({ 
+      businessOrderReference: transactionReference 
     });
-    
+
+    if (!order) {
+      console.log(`[MONNIFY_WEBHOOK_${webhookId}] ❌ Order not found`);
+      return res.status(404).json({ 
+        requestSuccessful: false,
+        responseMessage: 'Order not found' 
+      });
+    }
+
+    // Prevent duplicate processing
+    if (order.status !== BUSINESS_ORDER_STATUS.INITIATED) {
+      return res.json({ 
+        requestSuccessful: true,
+        responseMessage: `Order already processed: ${order.status}`
+      });
+    }
+
+    if (paymentStatus === 'PAID') {
+      console.log(`[MONNIFY_WEBHOOK_${webhookId}] ✅ Payment confirmed`);
+      
+      order.status = BUSINESS_ORDER_STATUS.PENDING;
+      order.paidAmount = parseFloat(amountPaid);
+      order.paymentCompletedAt = new Date(paidOn);
+      order.metadata.monnifyPayment = {
+        paymentReference,
+        paymentMethod,
+        webhookReceivedAt: new Date(),
+        webhookId
+      };
+      
+      await order.save();
+
+      // Initiate settlement (async - don't wait)
+      genericTokenOnrampController.initiateSettlement(order, webhookId)
+        .catch(err => console.error(`Settlement failed:`, err));
+      
+      return res.json({ 
+        requestSuccessful: true,
+        responseMessage: 'Payment confirmed and settlement initiated'
+      });
+      
+    } else if (paymentStatus === 'FAILED') {
+      order.status = BUSINESS_ORDER_STATUS.FAILED;
+      order.metadata.paymentFailure = {
+        reason: 'Payment failed at Monnify',
+        timestamp: new Date()
+      };
+      await order.save();
+      
+      return res.json({ 
+        requestSuccessful: true,
+        responseMessage: 'Payment failure recorded'
+      });
+    }
+
   } catch (error) {
-    console.error(`[MONNIFY_WEBHOOK_${webhookId}] 💥 Webhook error:`, error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to process enhanced webhook',
-      error: error.message,
-      requestId: webhookId
+    console.error(`[MONNIFY_WEBHOOK_${webhookId}] ❌ Error:`, error);
+    return res.status(500).json({ 
+      requestSuccessful: false,
+      responseMessage: error.message
+    });
+  }
+},
+
+/**
+ * ENHANCED: Initiate blockchain settlement
+ */
+async initiateSettlement(order, webhookId) {
+  console.log(`[SETTLEMENT_${webhookId}] 🚀 Starting settlement for ${order.orderId}`);
+  
+  try {
+    order.status = BUSINESS_ORDER_STATUS.PROCESSING;
+    order.settlementInitiatedAt = new Date();
+    await order.save();
+
+    const liquidityServerUrl = process.env.LIQUIDITY_SERVER_WEBHOOK_URL;
+    if (!liquidityServerUrl) {
+      throw new Error('LIQUIDITY_SERVER_WEBHOOK_URL not configured');
+    }
+
+    const settlementPayload = {
+      orderId: order.orderId,
+      businessOrderReference: order.businessOrderReference,
+      network: order.targetNetwork,
+      token: {
+        symbol: order.targetToken,
+        address: order.tokenContractAddress,
+        decimals: order.metadata.tokenValidation?.decimals || 18
+      },
+      recipient: {
+        address: order.customerWallet,
+        email: order.customerEmail
+      },
+      amount: {
+        token: order.estimatedTokenAmount.toString(),
+        usdc: order.metadata.smartContractData?.actualUsdcValue,
+        ngn: order.amount
+      },
+      liquidity: {
+        providerId: order.metadata.liquidityValidation?.recommendedProvider?.id,
+        providerName: order.metadata.liquidityValidation?.recommendedProvider?.name
+      }
+    };
+
+    console.log(`[SETTLEMENT_${webhookId}] 📡 Calling liquidity server...`);
+    
+    const response = await axios.post(
+      `${liquidityServerUrl}/api/settlements/execute`,
+      settlementPayload,
+      { timeout: 30000 }
+    );
+
+    if (response.data.success) {
+      order.metadata.settlementTransaction = {
+        txHash: response.data.txHash,
+        initiatedAt: new Date(),
+        status: 'pending_confirmation'
+      };
+      await order.save();
+      
+      console.log(`[SETTLEMENT_${webhookId}] ✅ Settlement initiated: ${response.data.txHash}`);
+    }
+
+  } catch (error) {
+    console.error(`[SETTLEMENT_${webhookId}] ❌ Settlement failed:`, error.message);
+    
+    order.status = BUSINESS_ORDER_STATUS.FAILED;
+    order.metadata.settlementError = {
+      message: error.message,
+      timestamp: new Date()
+    };
+    await order.save();
+    
+    throw error;
+  }
+},
+
+/**
+ * ENHANCED: Handle settlement confirmation webhook
+ */
+handleSettlementWebhook: async (req, res) => {
+  const webhookId = Math.random().toString(36).substr(2, 8);
+  
+  console.log(`[SETTLEMENT_WEBHOOK_${webhookId}] ========================================`);
+  console.log(`[SETTLEMENT_WEBHOOK_${webhookId}] 📥 Received at: ${new Date().toISOString()}`);
+  console.log(`[SETTLEMENT_WEBHOOK_${webhookId}] 📦 Body:`, JSON.stringify(req.body, null, 2));
+  
+  try {
+    const { orderId, txHash, status, confirmations, blockNumber } = req.body;
+
+    if (!orderId || !status) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing required fields' 
+      });
+    }
+
+    const order = await BusinessOnrampOrder.findOne({ orderId });
+    
+    if (!order) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Order not found' 
+      });
+    }
+
+    console.log(`[SETTLEMENT_WEBHOOK_${webhookId}] 📊 Order: ${orderId}, Status: ${status}`);
+
+    if (status === 'confirmed' || status === 'completed') {
+      console.log(`[SETTLEMENT_WEBHOOK_${webhookId}] ✅ Settlement confirmed`);
+      
+      order.status = BUSINESS_ORDER_STATUS.COMPLETED;
+      order.actualTokenAmount = order.estimatedTokenAmount;
+      order.settlementCompletedAt = new Date();
+      order.completedAt = new Date();
+      order.transactionHash = txHash;
+      
+      order.metadata.settlementTransaction = {
+        ...order.metadata.settlementTransaction,
+        txHash,
+        confirmations,
+        blockNumber,
+        confirmedAt: new Date(),
+        status: 'confirmed'
+      };
+
+      await order.save();
+      
+      console.log(`[SETTLEMENT_WEBHOOK_${webhookId}] ✅ Order completed: ${txHash}`);
+      
+      // Notify business
+      if (order.webhookUrl) {
+        await sendBusinessWebhook(order.webhookUrl, {
+          event: 'order.completed',
+          orderId: order.orderId,
+          status: order.status,
+          txHash,
+          completedAt: order.completedAt
+        }, 'order.completed');
+      }
+      
+      // Clean up active orders
+      const registryKey = `${order.customerEmail}-${order.targetToken}-${order.targetNetwork}`;
+      activeOrders.delete(registryKey);
+      
+    } else if (status === 'failed') {
+      console.log(`[SETTLEMENT_WEBHOOK_${webhookId}] ❌ Settlement failed`);
+      
+      order.status = BUSINESS_ORDER_STATUS.FAILED;
+      order.metadata.settlementError = {
+        txHash,
+        message: 'Transaction failed on blockchain',
+        timestamp: new Date()
+      };
+      await order.save();
+      
+      // Notify business
+      if (order.webhookUrl) {
+        await sendBusinessWebhook(order.webhookUrl, {
+          event: 'settlement.failed',
+          orderId: order.orderId,
+          status: order.status,
+          txHash
+        }, 'settlement.failed');
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Settlement webhook processed',
+      orderId: order.orderId,
+      currentStatus: order.status
+    });
+
+  } catch (error) {
+    console.error(`[SETTLEMENT_WEBHOOK_${webhookId}] ❌ Error:`, error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
     });
   }
 },

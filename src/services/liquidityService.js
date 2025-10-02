@@ -95,7 +95,7 @@ class LiquidityService {
 
       // Test 3: Try the actual liquidity endpoint with detailed error info
       console.log(`[DEBUG_AUTH_${debugId}] 📊 Test 3: Liquidity providers endpoint`);
-      const liquidityUrl = `${this.adminApiUrl}/api/admin/liquidity-providers?limit=1`;
+      const liquidityUrl = `${this.adminApiUrl}api/admin/liquidity-providers?limit=1`;
       
       try {
         const liquidityResponse = await axios.get(liquidityUrl, {
@@ -249,7 +249,7 @@ class LiquidityService {
         limit: '100' // Get all providers
       });
       
-      const apiUrl = `${this.adminApiUrl}/api/admin/liquidity-providers?${queryParams}`;
+      const apiUrl = `${this.adminApiUrl}api/admin/liquidity-providers?${queryParams}`;
       console.log(`[LIQUIDITY_CHECK_${checkId}] 🌐 Calling API: ${apiUrl}`);
       
       const startTime = Date.now();
@@ -526,7 +526,7 @@ class LiquidityService {
         throw new Error('Admin API token not configured');
       }
       
-      const response = await axios.get(`${this.adminApiUrl}/api/admin/liquidity-providers`, {
+      const response = await axios.get(`${this.adminApiUrl}api/admin/liquidity-providers`, {
         params: {
           liquidityType: 'onramp',
           isActive: 'true',
@@ -726,7 +726,7 @@ class LiquidityService {
         throw new Error('Admin API token not configured');
       }
       
-      const response = await axios.get(`${this.adminApiUrl}/api/admin/liquidity-providers`, {
+      const response = await axios.get(`${this.adminApiUrl}api/admin/liquidity-providers`, {
         params: {
           liquidityType: 'onramp',
           isActive: 'true',
