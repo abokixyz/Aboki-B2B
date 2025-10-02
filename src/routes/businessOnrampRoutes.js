@@ -2045,32 +2045,32 @@ router.get('/health/detailed', async (req, res) => {
 * 
 * 1. Check if ENB token is supported on Base:
 * curl -X POST 'http://localhost:5002/api/v1/business-onramp/check-support' \
-*   -H 'X-API-Key: YOUR_API_KEY' \
+*   -H 'X-API-Key: YOUR_PUBLIC_API_KEY' \
 *   -H 'Content-Type: application/json' \
 *   -d '{"targetToken": "ENB", "targetNetwork": "base"}'
 * 
 * 2. Check if SOL token is supported on Solana:
 * curl -X POST 'http://localhost:5002/api/v1/business-onramp/check-support' \
-*   -H 'X-API-Key: YOUR_API_KEY' \
+*   -H 'X-API-Key: YOUR_PUBLIC_API_KEY' \
 *   -H 'Content-Type: application/json' \
 *   -d '{"targetToken": "SOL", "targetNetwork": "solana"}'
 * 
 * 3. Test ETH token on Base:
 * curl -X POST 'http://localhost:5002/api/v1/business-onramp/test-token' \
-*   -H 'X-API-Key: YOUR_API_KEY' \
+*   -H 'X-API-Key: YOUR_PUBLIC_API_KEY' \
 *   -H 'Content-Type: application/json' \
 *   -d '{"targetToken": "ETH", "targetNetwork": "base", "testAmount": 10000}'
 * 
 * 4. Get quote for SOL on Solana:
 * curl -X POST 'http://localhost:5002/api/v1/business-onramp/quote' \
-*   -H 'X-API-Key: YOUR_API_KEY' \
+*   -H 'X-API-Key: YOUR_PUBLIC_API_KEY' \
 *   -H 'Content-Type: application/json' \
 *   -d '{"amount": 75000, "targetToken": "SOL", "targetNetwork": "solana"}'
 * 
 * 5. Create SOL order on Solana:
 * curl -X POST 'http://localhost:5002/api/v1/business-onramp/create' \
-*   -H 'X-API-Key: YOUR_API_KEY' \
-*   -H 'X-Secret-Key: YOUR_SECRET_KEY' \
+*   -H 'X-API-Key: YOUR_PUBLIC_API_KEY' \
+*   -H 'X-Secret-Key: YOUR_SECRET_API_KEY' \
 *   -H 'Content-Type: application/json' \
 *   -d '{
 *     "customerEmail": "customer@example.com",
@@ -2083,20 +2083,20 @@ router.get('/health/detailed', async (req, res) => {
 * 
 * 6. Get all tokens with validation across networks:
 * curl -X GET 'http://localhost:5002/api/v1/business-onramp/supported-tokens/validate?validateAll=true' \
-*   -H 'X-API-Key: YOUR_API_KEY'
+*   -H 'X-API-Key: YOUR_PUBLIC_API_KEY'
 * 
 * 7. Debug SOL token on Solana:
 * curl -X GET 'http://localhost:5002/api/v1/business-onramp/debug/token/SOL?network=solana' \
-*   -H 'X-API-Key: YOUR_API_KEY'
+*   -H 'X-API-Key: YOUR_PUBLIC_API_KEY'
 * 
 * 8. Check multi-network system health:
 * curl -X GET 'http://localhost:5002/api/v1/business-onramp/health/detailed' \
-*   -H 'X-API-Key: YOUR_API_KEY'
+*   -H 'X-API-Key: YOUR_PUBLIC_API_KEY'
 * 
 * 9. Filter orders by network:
 * curl -X GET 'http://localhost:5002/api/v1/business-onramp/orders?targetNetwork=solana&limit=10' \
-*   -H 'X-API-Key: YOUR_API_KEY' \
-*   -H 'X-Secret-Key: YOUR_SECRET_KEY'
+*   -H 'X-API-Key: YOUR_PUBLIC_API_KEY' \
+*   -H 'X-Secret-Key: YOUR_SECRET_API_KEY'
 */
 
 // ================== ROUTE EXPORTS AND SUMMARY (Updated) ==================
