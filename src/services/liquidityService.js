@@ -3,7 +3,7 @@
  * Each transaction must be handled by ONE liquidity provider
  * Works with real API data only
  * Added comprehensive debug and error handling for 401 issues
- * 
+ *
  * File: services/liquidityService.js
  */
 
@@ -16,7 +16,7 @@ class LiquidityService {
     this.bufferPercentage = parseFloat(process.env.LIQUIDITY_BUFFER_PERCENTAGE || '5') / 100; // 5% safety buffer
     this._authDebugRun = false; // Track if we've run debug
     this._lastAuthError = null; // Track last auth error
-    
+
     console.log(`[LIQUIDITY_SERVICE] 🔧 Initialized with:`);
     console.log(`[LIQUIDITY_SERVICE]   - Admin API: ${this.adminApiUrl}`);
     console.log(`[LIQUIDITY_SERVICE]   - Has Token: ${!!this.adminToken}`);
@@ -33,7 +33,7 @@ class LiquidityService {
   async debugAuthentication() {
     const debugId = Math.random().toString(36).substr(2, 6);
     console.log(`[DEBUG_AUTH_${debugId}] 🔍 Starting authentication debug`);
-    
+
     // Check configuration
     console.log(`[DEBUG_AUTH_${debugId}] 📋 Configuration:`);
     console.log(`[DEBUG_AUTH_${debugId}]   - Admin API URL: ${this.adminApiUrl}`);
@@ -65,7 +65,7 @@ class LiquidityService {
       // Test 2: Authentication with current token
       console.log(`[DEBUG_AUTH_${debugId}] 🔐 Test 2: Authentication with current token`);
       const authTestUrl = `${this.adminApiUrl}/api/admin/auth/verify`;
-      
+
       try {
         const authResponse = await axios.get(authTestUrl, {
           headers: {
@@ -78,17 +78,17 @@ class LiquidityService {
             return status < 500; // Don't throw for 4xx errors
           }
         });
-        
+
         console.log(`[DEBUG_AUTH_${debugId}] Auth test response: ${authResponse.status} ${authResponse.statusText}`);
         console.log(`[DEBUG_AUTH_${debugId}] Response headers:`, authResponse.headers);
         console.log(`[DEBUG_AUTH_${debugId}] Response data:`, authResponse.data);
-        
+
         if (authResponse.status === 401) {
           console.error(`[DEBUG_AUTH_${debugId}] ❌ Token rejected - likely invalid or expired`);
         } else if (authResponse.status === 404) {
           console.warn(`[DEBUG_AUTH_${debugId}] ⚠️  Auth endpoint not found - API might use different auth method`);
         }
-        
+
       } catch (authError) {
         console.error(`[DEBUG_AUTH_${debugId}] Auth test error:`, authError.message);
       }
@@ -96,7 +96,7 @@ class LiquidityService {
       // Test 3: Try the actual liquidity endpoint with detailed error info
       console.log(`[DEBUG_AUTH_${debugId}] 📊 Test 3: Liquidity providers endpoint`);
       const liquidityUrl = `${this.adminApiUrl}api/admin/liquidity-providers?limit=1`;
-      
+
       try {
         const liquidityResponse = await axios.get(liquidityUrl, {
           headers: {
@@ -109,30 +109,30 @@ class LiquidityService {
             return status < 500; // Don't throw for 4xx errors
           }
         });
-        
+
         console.log(`[DEBUG_AUTH_${debugId}] Liquidity endpoint response: ${liquidityResponse.status}`);
         console.log(`[DEBUG_AUTH_${debugId}] Response data:`, JSON.stringify(liquidityResponse.data, null, 2));
-        
+
         if (liquidityResponse.status === 200) {
           console.log(`[DEBUG_AUTH_${debugId}] ✅ Authentication successful!`);
           return { success: true, message: 'Authentication working correctly' };
         } else {
           console.error(`[DEBUG_AUTH_${debugId}] ❌ Endpoint returned ${liquidityResponse.status}`);
-          return { 
-            error: `API returned ${liquidityResponse.status}`, 
+          return {
+            error: `API returned ${liquidityResponse.status}`,
             details: liquidityResponse.data,
             suggestions: this.getAuthErrorSuggestions(liquidityResponse.status)
           };
         }
-        
+
       } catch (liquidityError) {
         console.error(`[DEBUG_AUTH_${debugId}] Liquidity endpoint error:`, liquidityError.message);
         if (liquidityError.response) {
           console.error(`[DEBUG_AUTH_${debugId}] Error response:`, liquidityError.response.data);
           console.error(`[DEBUG_AUTH_${debugId}] Error status:`, liquidityError.response.status);
         }
-        return { 
-          error: 'Liquidity endpoint failed', 
+        return {
+          error: 'Liquidity endpoint failed',
           details: liquidityError.message,
           suggestions: this.getAuthErrorSuggestions(liquidityError.response?.status)
         };
@@ -149,7 +149,7 @@ class LiquidityService {
    */
   getAuthErrorSuggestions(status) {
     const suggestions = [];
-    
+
     switch (status) {
       case 401:
         suggestions.push('🔑 Check if the API token is valid and not expired');
@@ -158,30 +158,30 @@ class LiquidityService {
         suggestions.push('🏢 Confirm you\'re using the correct Admin API endpoint');
         suggestions.push('🌍 Check if you\'re using the right environment (dev/staging/prod)');
         break;
-        
+
       case 403:
         suggestions.push('👤 Token might be valid but lack required permissions');
         suggestions.push('🔐 Check if the token has "liquidity-provider" read permissions');
         break;
-        
+
       case 404:
         suggestions.push('🌐 API endpoint might be incorrect');
         suggestions.push('📍 Verify the Admin API base URL');
         suggestions.push('📋 Check API documentation for correct endpoint paths');
         break;
-        
+
       case 429:
         suggestions.push('⏱️  Rate limit exceeded - wait before retrying');
         break;
-        
+
       default:
         suggestions.push('📞 Check Admin API server logs for more details');
         suggestions.push('🔍 Verify Admin API service is running and healthy');
     }
-    
+
     return suggestions;
   }
-  
+
   /**
    * ENHANCED: Check if ANY SINGLE liquidity provider can handle the full transaction
    * This is the correct model for onramp transactions - NO AGGREGATION
@@ -192,18 +192,18 @@ class LiquidityService {
     console.log(`[LIQUIDITY_CHECK_${checkId}] 🔍 Starting liquidity check`);
     console.log(`[LIQUIDITY_CHECK_${checkId}] 📊 Required: $${requiredUsdcAmount} USDC on ${network}`);
     console.log(`[LIQUIDITY_CHECK_${checkId}] 🎯 Model: Single provider must handle entire amount`);
-    
+
     // Run auth debug on first 401 error
     if (!this._authDebugRun && this._lastAuthError?.status === 401) {
       console.log(`[LIQUIDITY_CHECK_${checkId}] 🔧 Running authentication debug due to previous 401 error...`);
       const debugResult = await this.debugAuthentication();
       this._authDebugRun = true;
-      
+
       if (debugResult.error) {
         console.error(`[LIQUIDITY_CHECK_${checkId}] 💥 Debug revealed authentication issue:`, debugResult);
       }
     }
-    
+
     // Validate inputs
     if (!network || !requiredUsdcAmount || requiredUsdcAmount <= 0) {
       console.error(`[LIQUIDITY_CHECK_${checkId}] ❌ Invalid inputs: network=${network}, amount=${requiredUsdcAmount}`);
@@ -218,7 +218,7 @@ class LiquidityService {
         }
       };
     }
-    
+
     // Check if admin API is configured
     if (!this.adminToken) {
       console.warn(`[LIQUIDITY_CHECK_${checkId}] ⚠️  Admin API token not configured`);
@@ -235,7 +235,7 @@ class LiquidityService {
         }
       };
     }
-    
+
     try {
       // Query ALL active liquidity providers
       const queryParams = new URLSearchParams({
@@ -248,10 +248,10 @@ class LiquidityService {
         sortOrder: 'desc',
         limit: '100' // Get all providers
       });
-      
-      const apiUrl = `${this.adminApiUrl}api/admin/liquidity-providers?${queryParams}`;
+
+      const apiUrl = `${this.adminApiUrl}/api/admin/liquidity-providers?${queryParams}`;
       console.log(`[LIQUIDITY_CHECK_${checkId}] 🌐 Calling API: ${apiUrl}`);
-      
+
       const startTime = Date.now();
       const response = await axios.get(apiUrl, {
         headers: {
@@ -261,27 +261,27 @@ class LiquidityService {
         },
         timeout: 15000
       });
-      
+
       const apiTime = Date.now() - startTime;
       console.log(`[LIQUIDITY_CHECK_${checkId}] ✅ API responded in ${apiTime}ms`);
-      
+
       // Reset auth error tracking on success
       this._lastAuthError = null;
-      
+
       // Validate API response
       if (!response.data) {
         throw new Error('No response data from admin API');
       }
-      
+
       if (!response.data.success) {
         throw new Error(`Admin API error: ${response.data.message || 'Unknown error'}`);
       }
-      
+
       const data = response.data.data;
       if (!data || !Array.isArray(data.providers)) {
         throw new Error('Invalid response format from admin API');
       }
-      
+
       const allProviders = data.providers;
       console.log(`[LIQUIDITY_CHECK_${checkId}] 📊 Retrieved ${allProviders.length} providers from API`);
       console.log(`[LIQUIDITY_CHECK_${checkId}] 💰 API Summary:`, {
@@ -290,43 +290,43 @@ class LiquidityService {
         baseBalance: data.summary?.totalBaseBalance || 0,
         solanaBalance: data.summary?.totalSolanaBalance || 0
       });
-      
+
       // CRITICAL: Find providers that can handle the FULL transaction amount
       const capableProviders = [];
       let maxSingleProviderBalance = 0;
       let totalNetworkLiquidity = 0;
       let activeProvidersOnNetwork = 0;
-      
+
       console.log(`[LIQUIDITY_CHECK_${checkId}] 🔍 Analyzing providers for ${network} network:`);
-      
+
       for (let i = 0; i < allProviders.length; i++) {
         const provider = allProviders[i];
-        
+
         // Get the specific network balance
-        const networkBalance = network === 'base' ? provider.balances.base : 
-                              network === 'solana' ? provider.balances.solana : 
+        const networkBalance = network === 'base' ? provider.balances.base :
+                              network === 'solana' ? provider.balances.solana :
                               provider.balances.total;
-        
+
         // Count active providers and total liquidity on this network
         if (networkBalance > 0) {
           activeProvidersOnNetwork++;
           totalNetworkLiquidity += networkBalance;
           maxSingleProviderBalance = Math.max(maxSingleProviderBalance, networkBalance);
         }
-        
+
         console.log(`[LIQUIDITY_CHECK_${checkId}] 👤 Provider ${i + 1}: ${provider.user.name}`);
         console.log(`[LIQUIDITY_CHECK_${checkId}]   - ${network} Balance: $${networkBalance} USDC`);
         console.log(`[LIQUIDITY_CHECK_${checkId}]   - Active: ${provider.status.isActive ? '✅' : '❌'}`);
         console.log(`[LIQUIDITY_CHECK_${checkId}]   - Verified: ${provider.status.isVerified ? '✅' : '❌'}`);
-        
+
         // CRITICAL CHECK: Can this single provider handle the FULL required amount?
         const canHandleFullAmount = networkBalance >= requiredUsdcAmount;
         console.log(`[LIQUIDITY_CHECK_${checkId}]   - Can Handle $${requiredUsdcAmount}? ${canHandleFullAmount ? '✅ YES' : '❌ NO'}`);
-        
+
         if (canHandleFullAmount) {
           const utilizationRate = (requiredUsdcAmount / networkBalance * 100);
           const remainingBalance = networkBalance - requiredUsdcAmount;
-          
+
           capableProviders.push({
             id: provider.id,
             name: provider.user.name,
@@ -339,21 +339,21 @@ class LiquidityService {
             isActive: provider.status.isActive,
             selectionScore: this.calculateProviderScore(provider, networkBalance, requiredUsdcAmount)
           });
-          
+
           console.log(`[LIQUIDITY_CHECK_${checkId}]   - ✅ CAPABLE: Utilization ${utilizationRate.toFixed(1)}%, Remaining $${remainingBalance.toFixed(2)}`);
         } else {
           const shortage = requiredUsdcAmount - networkBalance;
           console.log(`[LIQUIDITY_CHECK_${checkId}]   - ❌ INSUFFICIENT: Short by $${shortage.toFixed(2)} USDC`);
         }
       }
-      
+
       // Sort capable providers by selection score (best first)
       capableProviders.sort((a, b) => b.selectionScore - a.selectionScore);
-      
+
       // FINAL DETERMINATION: Can we fulfill the transaction?
       const hasLiquidity = capableProviders.length > 0;
       const recommendedProvider = capableProviders[0] || null;
-      
+
       console.log(`[LIQUIDITY_CHECK_${checkId}] 🎯 LIQUIDITY ANALYSIS COMPLETE:`);
       console.log(`[LIQUIDITY_CHECK_${checkId}]   - Required Amount: $${requiredUsdcAmount} USDC`);
       console.log(`[LIQUIDITY_CHECK_${checkId}]   - Network: ${network}`);
@@ -363,7 +363,7 @@ class LiquidityService {
       console.log(`[LIQUIDITY_CHECK_${checkId}]   - Max Single Provider: $${maxSingleProviderBalance} USDC`);
       console.log(`[LIQUIDITY_CHECK_${checkId}]   - Providers That Can Handle Full Amount: ${capableProviders.length}`);
       console.log(`[LIQUIDITY_CHECK_${checkId}]   - ⭐ CAN FULFILL: ${hasLiquidity ? '✅ YES' : '❌ NO'}`);
-      
+
       if (recommendedProvider) {
         console.log(`[LIQUIDITY_CHECK_${checkId}] 🏆 RECOMMENDED PROVIDER:`);
         console.log(`[LIQUIDITY_CHECK_${checkId}]   - Name: ${recommendedProvider.name}`);
@@ -373,7 +373,7 @@ class LiquidityService {
         console.log(`[LIQUIDITY_CHECK_${checkId}]   - Verified: ${recommendedProvider.isVerified ? 'Yes' : 'No'}`);
         console.log(`[LIQUIDITY_CHECK_${checkId}]   - Selection Score: ${recommendedProvider.selectionScore}`);
       }
-      
+
       // Generate detailed recommendation
       let recommendation;
       if (hasLiquidity) {
@@ -383,9 +383,9 @@ class LiquidityService {
         const deficitPercentage = ((deficit / requiredUsdcAmount) * 100).toFixed(1);
         recommendation = `❌ No single provider can handle $${requiredUsdcAmount} USDC. Largest available: $${maxSingleProviderBalance} USDC. Need additional $${deficit.toFixed(2)} USDC (${deficitPercentage}% short).`;
       }
-      
+
       console.log(`[LIQUIDITY_CHECK_${checkId}] 📝 Recommendation: ${recommendation}`);
-      
+
       return {
         success: true,
         hasLiquidity: hasLiquidity,
@@ -413,11 +413,11 @@ class LiquidityService {
         },
         recommendation
       };
-      
+
     } catch (error) {
       console.error(`[LIQUIDITY_CHECK_${checkId}] 💥 ERROR during liquidity check:`, error.message);
       console.error(`[LIQUIDITY_CHECK_${checkId}] Stack trace:`, error.stack);
-      
+
       // Enhanced error logging for authentication issues
       if (error.response?.status === 401) {
         this._lastAuthError = error.response;
@@ -431,7 +431,7 @@ class LiquidityService {
         suggestions.forEach(suggestion => {
           console.error(`[LIQUIDITY_CHECK_${checkId}]   - ${suggestion}`);
         });
-        
+
         // Trigger debug on next call if not already run
         if (!this._authDebugRun) {
           console.error(`[LIQUIDITY_CHECK_${checkId}]   - 🔧 Debug will run on next call to diagnose further`);
@@ -452,7 +452,7 @@ class LiquidityService {
         console.error(`[LIQUIDITY_CHECK_${checkId}] ⏱️  TIMEOUT: Admin API took too long to respond`);
         console.error(`[LIQUIDITY_CHECK_${checkId}]   - Check network connectivity and server performance`);
       }
-      
+
       // On error, we cannot verify liquidity - return false for safety
       return {
         success: false,
@@ -476,14 +476,14 @@ class LiquidityService {
       };
     }
   }
-  
+
   /**
    * Calculate provider selection score (0-100)
    * Higher score = better provider for the transaction
    */
   calculateProviderScore(provider, networkBalance, requiredAmount) {
     let score = 0;
-    
+
     // Balance adequacy score (0-40 points)
     const balanceRatio = networkBalance / requiredAmount;
     if (balanceRatio >= 5) score += 40; // Excellent balance (5x requirement)
@@ -492,13 +492,13 @@ class LiquidityService {
     else if (balanceRatio >= 1.5) score += 25; // Adequate (1.5x requirement)
     else if (balanceRatio >= 1.2) score += 20; // Tight but acceptable
     else if (balanceRatio >= 1) score += 15; // Just enough
-    
+
     // Verification status (0-25 points)
     if (provider.status.isVerified) score += 25;
-    
+
     // Active status (0-15 points)
     if (provider.status.isActive) score += 15;
-    
+
     // Utilization efficiency (0-20 points)
     // Sweet spot: 20-70% utilization of provider's balance
     const utilizationRate = requiredAmount / networkBalance;
@@ -511,21 +511,21 @@ class LiquidityService {
     } else {
       score += 5; // Poor utilization (too high or too low)
     }
-    
+
     return parseFloat(score.toFixed(1));
   }
-  
+
   /**
    * Get comprehensive liquidity dashboard
    */
   async getDashboard() {
     try {
       console.log('[LIQUIDITY_SERVICE] 📊 Getting liquidity dashboard');
-      
+
       if (!this.adminToken) {
         throw new Error('Admin API token not configured');
       }
-      
+
       const response = await axios.get(`${this.adminApiUrl}api/admin/liquidity-providers`, {
         params: {
           liquidityType: 'onramp',
@@ -540,14 +540,14 @@ class LiquidityService {
         },
         timeout: 10000
       });
-      
+
       if (!response.data?.success) {
         throw new Error('Failed to fetch liquidity provider data');
       }
-      
+
       const data = response.data.data;
       const providers = data.providers || [];
-      
+
       // Network analysis for single-provider model
       const networkAnalysis = {
         base: {
@@ -565,7 +565,7 @@ class LiquidityService {
           averageBalance: 0
         }
       };
-      
+
       providers.forEach(provider => {
         // Base network analysis
         if (provider.balances.base > 0) {
@@ -582,7 +582,7 @@ class LiquidityService {
           );
           networkAnalysis.base.providerCount++;
         }
-        
+
         // Solana network analysis
         if (provider.balances.solana > 0) {
           networkAnalysis.solana.providers.push({
@@ -599,7 +599,7 @@ class LiquidityService {
           networkAnalysis.solana.providerCount++;
         }
       });
-      
+
       // Calculate averages
       if (networkAnalysis.base.providerCount > 0) {
         networkAnalysis.base.averageBalance = networkAnalysis.base.totalLiquidity / networkAnalysis.base.providerCount;
@@ -607,12 +607,12 @@ class LiquidityService {
       if (networkAnalysis.solana.providerCount > 0) {
         networkAnalysis.solana.averageBalance = networkAnalysis.solana.totalLiquidity / networkAnalysis.solana.providerCount;
       }
-      
+
       // Health assessment based on max single transaction capacity
       const healthMetrics = {
         base: {
           status: networkAnalysis.base.maxSingleTransaction >= 100 ? 'healthy' :
-                  networkAnalysis.base.maxSingleTransaction >= 50 ? 'warning' : 
+                  networkAnalysis.base.maxSingleTransaction >= 50 ? 'warning' :
                   networkAnalysis.base.maxSingleTransaction >= 10 ? 'limited' : 'critical',
           maxOrderCapacity: networkAnalysis.base.maxSingleTransaction,
           providerCount: networkAnalysis.base.providerCount,
@@ -620,14 +620,14 @@ class LiquidityService {
         },
         solana: {
           status: networkAnalysis.solana.maxSingleTransaction >= 100 ? 'healthy' :
-                  networkAnalysis.solana.maxSingleTransaction >= 50 ? 'warning' : 
+                  networkAnalysis.solana.maxSingleTransaction >= 50 ? 'warning' :
                   networkAnalysis.solana.maxSingleTransaction >= 10 ? 'limited' : 'critical',
           maxOrderCapacity: networkAnalysis.solana.maxSingleTransaction,
           providerCount: networkAnalysis.solana.providerCount,
           canHandleLargeOrders: networkAnalysis.solana.maxSingleTransaction >= 100
         }
       };
-      
+
       return {
         timestamp: new Date().toISOString(),
         model: 'single_provider_per_transaction',
@@ -637,7 +637,7 @@ class LiquidityService {
           overallHealth: Math.min(
             healthMetrics.base.status === 'healthy' ? 4 : healthMetrics.base.status === 'warning' ? 3 : healthMetrics.base.status === 'limited' ? 2 : 1,
             healthMetrics.solana.status === 'healthy' ? 4 : healthMetrics.solana.status === 'warning' ? 3 : healthMetrics.solana.status === 'limited' ? 2 : 1
-          ) >= 3 ? 'healthy' : 
+          ) >= 3 ? 'healthy' :
           Math.min(
             healthMetrics.base.status === 'healthy' ? 4 : healthMetrics.base.status === 'warning' ? 3 : healthMetrics.base.status === 'limited' ? 2 : 1,
             healthMetrics.solana.status === 'healthy' ? 4 : healthMetrics.solana.status === 'warning' ? 3 : healthMetrics.solana.status === 'limited' ? 2 : 1
@@ -650,22 +650,22 @@ class LiquidityService {
           )
         }
       };
-      
+
     } catch (error) {
       console.error('[LIQUIDITY_SERVICE] Dashboard error:', error);
       throw new Error(`Failed to get liquidity dashboard: ${error.message}`);
     }
   }
-  
+
   /**
    * Check if a specific order can be fulfilled by a single provider
    */
   async checkOrderFulfillment(network, requiredUsdcAmount, customerNgnAmount) {
     try {
       console.log(`[LIQUIDITY_SERVICE] 🔍 Order fulfillment check: ${requiredUsdcAmount} USDC on ${network}`);
-      
+
       const liquidityCheck = await this.checkAvailability(network, requiredUsdcAmount);
-      
+
       const fulfillmentAnalysis = {
         canFulfill: liquidityCheck.hasLiquidity,
         network,
@@ -676,15 +676,15 @@ class LiquidityService {
         fulfillmentModel: 'single_provider_only',
         alternativeOptions: []
       };
-      
+
       // Generate alternatives if can't fulfill
       if (!liquidityCheck.hasLiquidity) {
         const maxAvailable = liquidityCheck.liquidityAnalysis?.maxSingleProviderAmount || 0;
-        
+
         if (maxAvailable > 1) { // If there's some liquidity available
           const maxFulfillableRatio = (maxAvailable * 0.9) / requiredUsdcAmount; // 90% for safety
           const maxFulfillableNgn = Math.floor(customerNgnAmount * maxFulfillableRatio);
-          
+
           fulfillmentAnalysis.alternativeOptions.push({
             type: 'REDUCE_ORDER_SIZE',
             suggestion: `Reduce order to maximum single provider capacity`,
@@ -693,39 +693,39 @@ class LiquidityService {
             reductionNeeded: `${((requiredUsdcAmount - maxAvailable) / requiredUsdcAmount * 100).toFixed(1)}%`
           });
         }
-        
+
         fulfillmentAnalysis.alternativeOptions.push({
           type: 'WAIT_FOR_LIQUIDITY',
           suggestion: 'Wait for liquidity providers to add more funds',
           estimatedWaitTime: '15-60 minutes'
         });
-        
+
         fulfillmentAnalysis.alternativeOptions.push({
           type: 'CONTACT_SUPPORT',
           suggestion: 'Contact support to arrange larger liquidity or split transaction',
           supportEmail: 'support@yourplatform.com'
         });
       }
-      
+
       return fulfillmentAnalysis;
-      
+
     } catch (error) {
       console.error('[LIQUIDITY_SERVICE] Fulfillment check error:', error);
       throw new Error(`Failed to check order fulfillment: ${error.message}`);
     }
   }
-  
+
   /**
    * Get real-time liquidity status
    */
   async getStatus(network = null) {
     try {
       console.log(`[LIQUIDITY_SERVICE] Status check${network ? ` for ${network}` : ''}`);
-      
+
       if (!this.adminToken) {
         throw new Error('Admin API token not configured');
       }
-      
+
       const response = await axios.get(`${this.adminApiUrl}api/admin/liquidity-providers`, {
         params: {
           liquidityType: 'onramp',
@@ -740,14 +740,14 @@ class LiquidityService {
         },
         timeout: 5000
       });
-      
+
       if (!response.data?.success) {
         throw new Error('Failed to fetch liquidity data');
       }
-      
+
       const data = response.data.data;
       const providers = data.providers || [];
-      
+
       // Calculate max single transaction capacity per network
       let maxBaseTx = 0;
       let maxSolanaTx = 0;
@@ -755,7 +755,7 @@ class LiquidityService {
       let solanaProviders = 0;
       let totalBaseLiquidity = 0;
       let totalSolanaLiquidity = 0;
-      
+
       providers.forEach(provider => {
         if (provider.balances.base > 0) {
           maxBaseTx = Math.max(maxBaseTx, provider.balances.base);
@@ -768,7 +768,7 @@ class LiquidityService {
           solanaProviders++;
         }
       });
-      
+
       return {
         timestamp: new Date().toISOString(),
         model: 'single_provider_per_transaction',
@@ -787,13 +787,13 @@ class LiquidityService {
           }
         },
         overall: {
-          status: (maxBaseTx >= 10 && maxSolanaTx >= 10) ? 'operational' : 
+          status: (maxBaseTx >= 10 && maxSolanaTx >= 10) ? 'operational' :
                   (maxBaseTx >= 5 || maxSolanaTx >= 5) ? 'limited' : 'critical',
           totalProviders: providers.length,
           maxGlobalTransaction: Math.max(maxBaseTx, maxSolanaTx)
         }
       };
-      
+
     } catch (error) {
       console.error('[LIQUIDITY_SERVICE] Status error:', error);
       return {
@@ -803,23 +803,23 @@ class LiquidityService {
       };
     }
   }
-  
+
   /**
    * Enhanced method that runs debug first if auth issues detected
    */
   async checkAvailabilityWithDebug(network, requiredUsdcAmount) {
     const checkId = Math.random().toString(36).substr(2, 6);
     console.log(`[LIQUIDITY_CHECK_DEBUG_${checkId}] 🔍 Starting enhanced liquidity check with debug capability`);
-    
+
     // Run debug if we've had auth issues before
     if (!this._authDebugRun && this._lastAuthError?.status === 401) {
       console.log(`[LIQUIDITY_CHECK_DEBUG_${checkId}] 🔧 Running authentication debug due to previous 401 error...`);
       const debugResult = await this.debugAuthentication();
       this._authDebugRun = true;
-      
+
       if (debugResult.error) {
         console.error(`[LIQUIDITY_CHECK_DEBUG_${checkId}] 💥 Debug revealed authentication issue:`, debugResult);
-        
+
         // Return early with debug info if auth is completely broken
         if (debugResult.error.includes('Cannot connect to Admin API')) {
           return {
@@ -841,7 +841,7 @@ class LiquidityService {
         console.log(`[LIQUIDITY_CHECK_DEBUG_${checkId}] ✅ Debug completed successfully`);
       }
     }
-    
+
     // Proceed with normal liquidity check
     try {
       return await this.checkAvailability(network, requiredUsdcAmount);
@@ -851,34 +851,34 @@ class LiquidityService {
         console.log(`[LIQUIDITY_CHECK_DEBUG_${checkId}] 🔧 Got 401 error, running debug...`);
         const debugResult = await this.debugAuthentication();
         this._authDebugRun = true;
-        
+
         console.error(`[LIQUIDITY_CHECK_DEBUG_${checkId}] Debug results after 401:`, debugResult);
       }
-      
+
       throw error;
     }
   }
-  
+
   /**
    * Validate service configuration
    */
   validateConfiguration() {
     const issues = [];
-    
+
     if (!this.adminApiUrl) {
       issues.push('ADMIN_API_BASE_URL not configured');
     }
-    
+
     if (!this.adminToken) {
       issues.push('ADMIN_API_TOKEN not configured - liquidity checks will be skipped');
     }
-    
+
     try {
       new URL(this.adminApiUrl);
     } catch (error) {
       issues.push('ADMIN_API_BASE_URL is not a valid URL');
     }
-    
+
     return {
       isValid: issues.length === 0,
       issues,
@@ -892,17 +892,17 @@ class LiquidityService {
       }
     };
   }
-  
+
   /**
    * Test connectivity and authentication
    */
   async testConnection() {
     console.log('[LIQUIDITY_SERVICE] 🧪 Testing connection and authentication...');
-    
+
     try {
       const validation = this.validateConfiguration();
       console.log('[LIQUIDITY_SERVICE] Configuration validation:', validation);
-      
+
       if (!validation.isValid) {
         return {
           success: false,
@@ -910,24 +910,38 @@ class LiquidityService {
           issues: validation.issues
         };
       }
-      
-      // Run comprehensive debug
-      const debugResult = await this.debugAuthentication();
-      
-      if (debugResult.success) {
-        return {
-          success: true,
-          message: 'Connection and authentication successful',
-          debugInfo: debugResult
-        };
-      } else {
+
+      // Test basic connectivity to Liquidity-Provider
+      try {
+        const response = await axios.get(`${this.adminApiUrl}/api/liquidity/status`, {
+          headers: {
+            'x-api-key': this.adminToken,
+            'Content-Type': 'application/json'
+          },
+          timeout: 10000
+        });
+
+        if (response.data.success) {
+          return {
+            success: true,
+            message: 'Connection to Liquidity-Provider successful',
+            response: response.data
+          };
+        } else {
+          return {
+            success: false,
+            error: 'Liquidity-Provider returned error',
+            response: response.data
+          };
+        }
+      } catch (error) {
         return {
           success: false,
-          error: 'Authentication failed',
-          debugInfo: debugResult
+          error: `Connection failed: ${error.message}`,
+          details: error.response?.data || error.message
         };
       }
-      
+
     } catch (error) {
       console.error('[LIQUIDITY_SERVICE] Test connection error:', error);
       return {
@@ -937,7 +951,7 @@ class LiquidityService {
       };
     }
   }
-  
+
   /**
    * Force reset authentication debug flag (for testing)
    */
@@ -946,7 +960,7 @@ class LiquidityService {
     this._lastAuthError = null;
     console.log('[LIQUIDITY_SERVICE] 🔄 Auth debug state reset');
   }
-  
+
   /**
    * Get service health and status
    */
@@ -964,7 +978,7 @@ class LiquidityService {
       } : null,
       authDebugRun: this._authDebugRun
     };
-    
+
     try {
       const connectionTest = await this.testConnection();
       health.connectivity = connectionTest;
@@ -974,8 +988,197 @@ class LiquidityService {
         error: error.message
       };
     }
-    
+
     return health;
+  }
+
+  /**
+   * NEW: Check liquidity availability via Liquidity-Provider API
+   */
+  async checkLiquidityAvailability(network, requiredAmount) {
+    try {
+      console.log(`[LIQUIDITY_SERVICE] Checking liquidity: ${requiredAmount} USDC on ${network}`);
+
+      const response = await axios.get(`${this.adminApiUrl}/api/liquidity/check-availability`, {
+        params: {
+          network,
+          requiredAmount,
+          token: 'USDC'
+        },
+        headers: {
+          'x-api-key': this.adminToken,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Liquidity check failed');
+      }
+
+      return {
+        success: true,
+        hasLiquidity: response.data.hasLiquidity,
+        availableAmount: response.data.availableAmount,
+        providerCount: response.data.providerCount,
+        recommendedProvider: response.data.recommendedProvider,
+        liquidityAnalysis: response.data.liquidityAnalysis
+      };
+
+    } catch (error) {
+      console.error('[LIQUIDITY_SERVICE] Liquidity check error:', error.message);
+      return {
+        success: false,
+        hasLiquidity: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * NEW: Request settlement from liquidity providers
+   */
+  async requestSettlement(settlementData) {
+    try {
+      console.log(`[LIQUIDITY_SERVICE] Requesting settlement:`, settlementData);
+
+      const response = await axios.post(`${this.adminApiUrl}/api/liquidity/request-settlement`, {
+        orderId: settlementData.orderId,
+        customerWallet: settlementData.customerWallet,
+        amount: settlementData.amount,
+        token: settlementData.token,
+        network: settlementData.network,
+        businessId: settlementData.businessId,
+        customerEmail: settlementData.customerEmail
+      }, {
+        headers: {
+          'x-api-key': this.adminToken,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Settlement request failed');
+      }
+
+      return {
+        success: true,
+        settlementId: response.data.settlementId,
+        status: response.data.status,
+        estimatedTime: response.data.estimatedTime,
+        transactionHash: response.data.transactionHash
+      };
+
+    } catch (error) {
+      console.error('[LIQUIDITY_SERVICE] Settlement request error:', error.message);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * NEW: Check settlement status
+   */
+  async checkSettlementStatus(settlementId) {
+    try {
+      console.log(`[LIQUIDITY_SERVICE] Checking settlement status: ${settlementId}`);
+
+      const response = await axios.get(`${this.adminApiUrl}/api/liquidity/settlement-status/${settlementId}`, {
+        headers: {
+          'x-api-key': this.adminToken,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Status check failed');
+      }
+
+      return {
+        success: true,
+        status: response.data.status,
+        transactionHash: response.data.transactionHash,
+        completedAt: response.data.completedAt,
+        error: response.data.error
+      };
+
+    } catch (error) {
+      console.error('[LIQUIDITY_SERVICE] Status check error:', error.message);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * NEW: Get liquidity dashboard from Liquidity-Provider
+   */
+  async getLiquidityDashboard() {
+    try {
+      console.log(`[LIQUIDITY_SERVICE] Getting liquidity dashboard`);
+
+      const response = await axios.get(`${this.adminApiUrl}/api/liquidity/dashboard`, {
+        headers: {
+          'x-api-key': this.adminToken,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Dashboard fetch failed');
+      }
+
+      return {
+        success: true,
+        dashboard: response.data.dashboard
+      };
+
+    } catch (error) {
+      console.error('[LIQUIDITY_SERVICE] Dashboard error:', error.message);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * NEW: Get liquidity dashboard from Liquidity-Provider
+   */
+  async getLiquidityDashboard() {
+    try {
+      console.log(`[LIQUIDITY_SERVICE] Getting liquidity dashboard`);
+
+      const response = await axios.get(`${this.adminApiUrl}/api/liquidity/dashboard`, {
+        headers: {
+          'x-api-key': this.adminToken,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Dashboard fetch failed');
+      }
+
+      return {
+        success: true,
+        dashboard: response.data.dashboard
+      };
+
+    } catch (error) {
+      console.error('[LIQUIDITY_SERVICE] Dashboard error:', error.message);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
   }
 }
 
@@ -989,33 +1192,33 @@ module.exports = {
 
 /*
  * USAGE EXAMPLES:
- * 
+ *
  * // Basic usage
  * const { liquidityService } = require('./services/liquidityService');
- * 
+ *
  * // Check liquidity for an order
  * const check = await liquidityService.checkAvailability('base', 50);
  * console.log('Can fulfill:', check.hasLiquidity);
- * 
+ *
  * // Enhanced check with debug (recommended for troubleshooting)
  * const enhancedCheck = await liquidityService.checkAvailabilityWithDebug('base', 50);
- * 
+ *
  * // Test connection and auth
  * const connectionTest = await liquidityService.testConnection();
  * console.log('Connection test:', connectionTest);
- * 
+ *
  * // Get service health
  * const health = await liquidityService.getServiceHealth();
  * console.log('Service health:', health);
- * 
+ *
  * // Debug authentication issues
  * const debugResult = await liquidityService.debugAuthentication();
  * console.log('Auth debug:', debugResult);
- * 
+ *
  * // Get comprehensive dashboard
  * const dashboard = await liquidityService.getDashboard();
  * console.log('Liquidity dashboard:', dashboard);
- * 
+ *
  * // Reset debug state (for testing)
  * liquidityService.resetAuthDebug();
  */

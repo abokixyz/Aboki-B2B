@@ -992,7 +992,7 @@ if (USE_UNIVERSAL) {
         try {
             const { tokenSymbol } = req.params;
             const { network = 'base' } = req.query;
-            
+
             // Validate network parameter
             const supportedNetworks = ['base', 'solana', 'ethereum'];
             if (!supportedNetworks.includes(network.toLowerCase())) {
@@ -1002,15 +1002,15 @@ if (USE_UNIVERSAL) {
                     code: 'UNSUPPORTED_NETWORK'
                 });
             }
-            
+
             // Use the check support functionality with detailed debugging
             const mockReq = {
                 ...req,
                 body: { targetToken: tokenSymbol, targetNetwork: network }
             };
-            
+
             return businessOnrampController.checkTokenSupport(mockReq, res);
-            
+
         } catch (error) {
             res.status(500).json({
                 success: false,
@@ -1569,7 +1569,7 @@ router.get('/config', readOnlyAuth, (req, res) => {
                 'GET /config'
             ]
         };
-        
+
         if (USE_UNIVERSAL) {
             config.availableEndpoints.push(
                 'POST /check-support',
@@ -1578,11 +1578,11 @@ router.get('/config', readOnlyAuth, (req, res) => {
                 'GET /debug/token/{tokenSymbol}'
             );
         }
-        
+
         if (USE_ENHANCED || USE_UNIVERSAL) {
             config.availableEndpoints.push('GET /health/detailed');
         }
-        
+
         // Network-specific configuration
         config.networkConfiguration = {
             base: {
@@ -1600,7 +1600,7 @@ router.get('/config', readOnlyAuth, (req, res) => {
                 apiBaseUrl: process.env.INTERNAL_API_BASE_URL ? 'Set' : 'Not set'
             }
         };
-        
+
         config.environmentVariables = {
             USE_ENHANCED_ONRAMP: process.env.USE_ENHANCED_ONRAMP || 'false',
             USE_UNIVERSAL_TOKENS: process.env.USE_UNIVERSAL_TOKENS || 'false',
@@ -1610,26 +1610,26 @@ router.get('/config', readOnlyAuth, (req, res) => {
             JUPITER_API_URL: process.env.JUPITER_API_URL ? 'Set' : 'Not set',
             INTERNAL_API_BASE_URL: process.env.INTERNAL_API_BASE_URL ? 'Set' : 'Not set'
         };
-        
+
         config.recommendations = [];
-        
+
         if (!USE_UNIVERSAL && !USE_ENHANCED) {
             config.recommendations.push('Consider enabling USE_UNIVERSAL_TOKENS=true for multi-network support');
         }
-        
+
         if (USE_UNIVERSAL) {
             if (!process.env.ABOKI_V2_CONTRACT) {
                 config.recommendations.push('Set ABOKI_V2_CONTRACT for Base smart contract features');
             }
-            
+
             if (!process.env.BASE_RPC_URL) {
                 config.recommendations.push('Set BASE_RPC_URL for better Base network connectivity');
             }
-            
+
             if (!process.env.SOLANA_RPC_URL) {
                 config.recommendations.push('Set SOLANA_RPC_URL for better Solana performance');
             }
-            
+
         /**
  * Improved Business Onramp Routes - Final Part
  * Configuration completion, error handling, and exports
@@ -1638,17 +1638,17 @@ router.get('/config', readOnlyAuth, (req, res) => {
         if (!process.env.JUPITER_API_URL) {
             config.recommendations.push('Set JUPITER_API_URL for custom Jupiter endpoint (optional)');
         }
-        
+
         if (!process.env.INTERNAL_API_BASE_URL) {
             config.recommendations.push('Set INTERNAL_API_BASE_URL for Ethereum network support');
         }
     }
-    
+
     res.json({
         success: true,
         data: config
     });
-    
+
 } catch (error) {
     res.status(500).json({
         success: false,
@@ -1703,7 +1703,7 @@ if (error.message.includes('not configured')) {
     statusCode = 400;
     errorCode = 'INSUFFICIENT_LIQUIDITY';
     message = error.message;
-    
+
     // Determine network from error message for better hints
     if (error.message.includes('Jupiter')) {
         networkHint = 'Low liquidity on Solana Jupiter DEX';
@@ -1783,6 +1783,232 @@ res.status(statusCode).json(errorResponse);
 *                       type: string
 *                       enum: [operational, degraded]
 */
+
+// ================== LIQUIDITY INTEGRATION ROUTES ==================
+
+/**
+ * @swagger
+ * /api/v1/business-onramp/liquidity/dashboard:
+ *   get:
+ *     summary: Get liquidity dashboard from Liquidity-Provider
+ *     description: Retrieve comprehensive liquidity information from the Liquidity-Provider system
+ *     tags: [Business Onramp API]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Liquidity dashboard retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 dashboard:
+ *                   type: object
+ *                   properties:
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     model:
+ *                       type: string
+ *                       example: "single_provider_per_transaction"
+ *                     networkAnalysis:
+ *                       type: object
+ *                       properties:
+ *                         base:
+ *                           type: object
+ *                           properties:
+ *                             totalLiquidity:
+ *                               type: number
+ *                             maxSingleTransaction:
+ *                               type: number
+ *                             providerCount:
+ *                               type: number
+ *                         solana:
+ *                           type: object
+ *                           properties:
+ *                             totalLiquidity:
+ *                               type: number
+ *                             maxSingleTransaction:
+ *                               type: number
+ *                             providerCount:
+ *                               type: number
+ *                     healthMetrics:
+ *                       type: object
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         overallHealth:
+ *                           type: string
+ *                           enum: [healthy, warning, critical]
+ *                         totalProvidersActive:
+ *                           type: number
+ *                         totalLiquidityUsd:
+ *                           type: number
+ *                         maxSingleTransactionCapacity:
+ *                           type: number
+ *       500:
+ *         description: Failed to retrieve liquidity dashboard
+ */
+router.get('/liquidity/dashboard', authenticateApiKey, async (req, res) => {
+  try {
+    const { liquidityService } = require('../services/liquidityService');
+    const result = await liquidityService.getLiquidityDashboard();
+
+    if (result.success) {
+      res.json({
+        success: true,
+        dashboard: result.dashboard
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/v1/business-onramp/liquidity/check/{network}/{amount}:
+ *   get:
+ *     summary: Check liquidity availability for a specific amount
+ *     description: Check if liquidity is available for a specific USDC amount on a network
+ *     tags: [Business Onramp API]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: network
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [base, solana, ethereum]
+ *         description: Network to check liquidity on
+ *         example: "base"
+ *       - in: path
+ *         name: amount
+ *         required: true
+ *         schema:
+ *           type: number
+ *         description: Required USDC amount
+ *         example: 100
+ *     responses:
+ *       200:
+ *         description: Liquidity check completed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 hasLiquidity:
+ *                   type: boolean
+ *                   example: true
+ *                 availableAmount:
+ *                   type: number
+ *                   example: 500
+ *                 providerCount:
+ *                   type: number
+ *                   example: 3
+ *                 recommendedProvider:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                     balance:
+ *                       type: number
+ *                 liquidityAnalysis:
+ *                   type: object
+ *       500:
+ *         description: Liquidity check failed
+ */
+router.get('/liquidity/check/:network/:amount', authenticateApiKey, async (req, res) => {
+  try {
+    const { network, amount } = req.params;
+    const { liquidityService } = require('../services/liquidityService');
+
+    const check = await liquidityService.checkLiquidityAvailability(network, parseFloat(amount));
+    res.json(check);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/v1/business-onramp/settlement-status/{orderId}:
+ *   get:
+ *     summary: Check settlement status for an order
+ *     description: Check the current settlement status of an order using the Liquidity-Provider system
+ *     tags: [Business Onramp API]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Order ID to check settlement status for
+ *         example: "OR_1234567890_ABCDEF"
+ *     responses:
+ *       200:
+ *         description: Settlement status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     orderId:
+ *                       type: string
+ *                       example: "OR_1234567890_ABCDEF"
+ *                     settlementId:
+ *                       type: string
+ *                       example: "SETTLE_789_XYZ"
+ *                     status:
+ *                       type: string
+ *                       enum: [pending, processing, completed, failed]
+ *                       example: "processing"
+ *                     transactionHash:
+ *                       type: string
+ *                       example: "0x123abc..."
+ *                     completedAt:
+ *                       type: string
+ *                       format: date-time
+ *                     error:
+ *                       type: string
+ *                     orderStatus:
+ *                       type: string
+ *                       example: "processing"
+ *       404:
+ *         description: Order not found
+ *       500:
+ *         description: Failed to check settlement status
+ */
+router.get('/settlement-status/:orderId', readOnlyAuth, businessOnrampController.checkSettlementStatus);
 
 // ================== WEBHOOK ROUTES ==================
 
@@ -1877,7 +2103,7 @@ try {
         uptime: process.uptime(),
         controllerType: USE_UNIVERSAL ? 'universal' : USE_ENHANCED ? 'enhanced' : 'original'
     };
-    
+
     if (USE_UNIVERSAL) {
         statusResponse.supportedNetworks = ['base', 'solana', 'ethereum'];
         statusResponse.networkStatus = {
@@ -1892,7 +2118,7 @@ try {
             ethereum: process.env.INTERNAL_API_BASE_URL ? 'operational' : 'degraded'
         };
     }
-    
+
     res.json(statusResponse);
 } catch (error) {
     res.status(500).json({
@@ -1925,16 +2151,16 @@ router.get('/health/detailed', async (req, res) => {
             services: {},
             networkHealth: {}
         };
-        
+
         // Test Base network if universal controller
         if (USE_UNIVERSAL) {
             try {
                 const { OnrampPriceChecker } = require('../services/onrampPriceChecker');
                 const checker = new OnrampPriceChecker();
-                
+
                 const isConnected = await checker.validateConnection();
                 const config = await checker.getContractConfiguration();
-                
+
                 healthReport.services.baseSmartContract = {
                     status: isConnected ? 'healthy' : 'unhealthy',
                     details: {
@@ -1944,7 +2170,7 @@ router.get('/health/detailed', async (req, res) => {
                         rpcUrl: process.env.BASE_RPC_URL || 'Not configured'
                     }
                 };
-                
+
                 healthReport.networkHealth.base = isConnected ? 'operational' : 'degraded';
             } catch (error) {
                 healthReport.services.baseSmartContract = {
@@ -1953,14 +2179,14 @@ router.get('/health/detailed', async (req, res) => {
                 };
                 healthReport.networkHealth.base = 'degraded';
             }
-            
+
             // Test Solana Jupiter
             try {
                 const { SolanaTokenPriceChecker } = require('../services/solanaOnrampPriceChecker');
                 const solanaChecker = new SolanaTokenPriceChecker();
-                
+
                 const jupiterHealth = await solanaChecker.validateConnection();
-                
+
                 healthReport.services.solanaJupiter = {
                     status: jupiterHealth ? 'healthy' : 'unhealthy',
                     details: {
@@ -1969,7 +2195,7 @@ router.get('/health/detailed', async (req, res) => {
                         solanaRpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'
                     }
                 };
-                
+
                 healthReport.networkHealth.solana = jupiterHealth ? 'operational' : 'degraded';
             } catch (error) {
                 healthReport.services.solanaJupiter = {
@@ -1979,13 +2205,13 @@ router.get('/health/detailed', async (req, res) => {
                 healthReport.networkHealth.solana = 'degraded';
             }
         }
-        
+
         // Test internal API
         try {
             const axios = require('axios');
             const baseUrl = process.env.INTERNAL_API_BASE_URL || 'http://localhost:5002';
             const response = await axios.get(`${baseUrl}/api/v1/health`, { timeout: 5000 });
-            
+
             healthReport.services.internalApi = {
                 status: response.status === 200 ? 'healthy' : 'unhealthy',
                 details: {
@@ -1993,7 +2219,7 @@ router.get('/health/detailed', async (req, res) => {
                     responseStatus: response.status
                 }
             };
-            
+
             healthReport.networkHealth.ethereum = response.status === 200 ? 'operational' : 'degraded';
         } catch (error) {
             healthReport.services.internalApi = {
@@ -2002,14 +2228,14 @@ router.get('/health/detailed', async (req, res) => {
             };
             healthReport.networkHealth.ethereum = 'degraded';
         }
-        
+
         // Determine overall health
         const healthyServices = Object.values(healthReport.services).filter(s => s.status === 'healthy').length;
         const totalServices = Object.keys(healthReport.services).length;
-        
-        healthReport.overallStatus = healthyServices === totalServices ? 'healthy' : 
+
+        healthReport.overallStatus = healthyServices === totalServices ? 'healthy' :
                                     healthyServices > 0 ? 'degraded' : 'unhealthy';
-        
+
         healthReport.capabilities = {
             baseTokenSupport: healthReport.services.baseSmartContract?.status === 'healthy',
             solanaTokenSupport: healthReport.services.solanaJupiter?.status === 'healthy',
@@ -2018,16 +2244,16 @@ router.get('/health/detailed', async (req, res) => {
             smartContractValidation: healthReport.services.baseSmartContract?.status === 'healthy',
             jupiterIntegration: healthReport.services.solanaJupiter?.status === 'healthy'
         };
-        
-        const statusCode = healthReport.overallStatus === 'healthy' ? 200 : 
+
+        const statusCode = healthReport.overallStatus === 'healthy' ? 200 :
                           healthReport.overallStatus === 'degraded' ? 207 : 503;
-        
+
         res.status(statusCode).json({
             success: healthReport.overallStatus !== 'unhealthy',
             message: `${USE_UNIVERSAL ? 'Universal' : 'Enhanced'} onramp system is ${healthReport.overallStatus}`,
             data: healthReport
         });
-        
+
     } catch (error) {
         res.status(500).json({
             success: false,
@@ -2042,31 +2268,31 @@ router.get('/health/detailed', async (req, res) => {
 
 /**
 * UPDATED Usage Examples for Multi-Network Support:
-* 
+*
 * 1. Check if ENB token is supported on Base:
 * curl -X POST 'http://localhost:5002/api/v1/business-onramp/check-support' \
 *   -H 'X-API-Key: YOUR_PUBLIC_API_KEY' \
 *   -H 'Content-Type: application/json' \
 *   -d '{"targetToken": "ENB", "targetNetwork": "base"}'
-* 
+*
 * 2. Check if SOL token is supported on Solana:
 * curl -X POST 'http://localhost:5002/api/v1/business-onramp/check-support' \
 *   -H 'X-API-Key: YOUR_PUBLIC_API_KEY' \
 *   -H 'Content-Type: application/json' \
 *   -d '{"targetToken": "SOL", "targetNetwork": "solana"}'
-* 
+*
 * 3. Test ETH token on Base:
 * curl -X POST 'http://localhost:5002/api/v1/business-onramp/test-token' \
 *   -H 'X-API-Key: YOUR_PUBLIC_API_KEY' \
 *   -H 'Content-Type: application/json' \
 *   -d '{"targetToken": "ETH", "targetNetwork": "base", "testAmount": 10000}'
-* 
+*
 * 4. Get quote for SOL on Solana:
 * curl -X POST 'http://localhost:5002/api/v1/business-onramp/quote' \
 *   -H 'X-API-Key: YOUR_PUBLIC_API_KEY' \
 *   -H 'Content-Type: application/json' \
 *   -d '{"amount": 75000, "targetToken": "SOL", "targetNetwork": "solana"}'
-* 
+*
 * 5. Create SOL order on Solana:
 * curl -X POST 'http://localhost:5002/api/v1/business-onramp/create' \
 *   -H 'X-API-Key: YOUR_PUBLIC_API_KEY' \
@@ -2080,19 +2306,19 @@ router.get('/health/detailed', async (req, res) => {
 *     "targetNetwork": "solana",
 *     "customerWallet": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
 *   }'
-* 
+*
 * 6. Get all tokens with validation across networks:
 * curl -X GET 'http://localhost:5002/api/v1/business-onramp/supported-tokens/validate?validateAll=true' \
 *   -H 'X-API-Key: YOUR_PUBLIC_API_KEY'
-* 
+*
 * 7. Debug SOL token on Solana:
 * curl -X GET 'http://localhost:5002/api/v1/business-onramp/debug/token/SOL?network=solana' \
 *   -H 'X-API-Key: YOUR_PUBLIC_API_KEY'
-* 
+*
 * 8. Check multi-network system health:
 * curl -X GET 'http://localhost:5002/api/v1/business-onramp/health/detailed' \
 *   -H 'X-API-Key: YOUR_PUBLIC_API_KEY'
-* 
+*
 * 9. Filter orders by network:
 * curl -X GET 'http://localhost:5002/api/v1/business-onramp/orders?targetNetwork=solana&limit=10' \
 *   -H 'X-API-Key: YOUR_PUBLIC_API_KEY' \
@@ -2103,7 +2329,7 @@ router.get('/health/detailed', async (req, res) => {
 
 /**
 * UPDATED Route Summary:
-* 
+*
 * Core Routes (Always Available):
 * - GET  /supported-tokens        - Get business supported tokens (now with network filtering)
 * - POST /quote                   - Get price quote for any token (Base/Solana/Ethereum)
@@ -2115,21 +2341,21 @@ router.get('/health/detailed', async (req, res) => {
 * - GET  /health                  - System health check (multi-network aware)
 * - GET  /status                  - Quick status check (with network status)
 * - GET  /config                  - System configuration info (network-aware)
-* 
+*
 * Universal Controller Routes (USE_UNIVERSAL_TOKENS=true):
 * - POST /check-support           - Check token support (Base/Solana/Ethereum)
 * - POST /test-token              - Test token compatibility (network-specific)
 * - GET  /supported-tokens/validate - Get tokens with validation (all networks)
 * - GET  /debug/token/:symbol     - Debug specific token (network-specific)
-* 
+*
 * Enhanced/Universal Controller Routes:
 * - GET  /health/detailed         - Detailed health check (multi-network)
-* 
+*
 * Network Support:
 * - Base: Smart contract validation, DEX liquidity checks, native ETH support
 * - Solana: Jupiter DEX integration, native SOL support, price impact calculation
 * - Ethereum: Internal API fallback for any ERC-20 token
-* 
+*
 * Key Improvements:
 * 1. Multi-network parameter validation
 * 2. Network-specific error messages and hints
@@ -2161,7 +2387,7 @@ module.exports = router;
 
 /**
 * UPDATED Quick Start Guide:
-* 
+*
 * 1. Set environment variables for multi-network support:
 *    USE_UNIVERSAL_TOKENS=true
 *    ABOKI_V2_CONTRACT=0x14157cA08Ed86531355f1DE8c918dE85CA6bCDa1  # Base
@@ -2169,25 +2395,25 @@ module.exports = router;
 *    SOLANA_RPC_URL=https://api.mainnet-beta.solana.com            # Solana
 *    JUPITER_API_URL=https://quote-api.jup.ag                      # Optional
 *    INTERNAL_API_BASE_URL=http://localhost:5002                   # Ethereum
-* 
+*
 * 2. Create the updated genericTokenOnrampController.js file
-* 
+*
 * 3. Test configuration:
 *    GET /config  # Should show all three networks
-* 
+*
 * 4. Check system health:
 *    GET /health/detailed  # Should show Base, Solana, and Ethereum status
-* 
+*
 * 5. Test tokens on different networks:
 *    POST /check-support {"targetToken": "ENB", "targetNetwork": "base"}
 *    POST /check-support {"targetToken": "SOL", "targetNetwork": "solana"}
 *    POST /test-token {"targetToken": "ETH", "targetNetwork": "base"}
-* 
+*
 * 6. Create orders on different networks:
 *    POST /create with targetNetwork: "base" for Base tokens
 *    POST /create with targetNetwork: "solana" for Solana tokens
 *    POST /create with targetNetwork: "ethereum" for Ethereum tokens
-* 
+*
 * This system will now automatically:
 * - Route Base tokens through smart contracts with DEX validation
 * - Route Solana tokens through Jupiter DEX with price impact calculation
